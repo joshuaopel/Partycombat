@@ -141,7 +141,7 @@ export const ENEMY_TYPES = {
   },
 
   mage: {
-    label: 'Wizzrobe',
+    label: 'Taros',
     hp: 6,
     speed: 0,
     radius: 8,
@@ -179,15 +179,15 @@ export const ENEMY_TYPES = {
   },
 
   knight: {
-    label: 'Iron Captain',
+    label: 'Armos Knight',
     hp: 90,
     speed: 34,
-    radius: 13,
+    radius: 16,
     score: 400,
     contact: 2,
     knockback: 0,
     boss: true,
-    scale: 2,
+    scale: 1.7,
     // Three-beat boss: stalk, charge across the arena, then a shockwave that
     // also summons adds. Readable enough that six players can coordinate.
     think(e, ctx, dt) {
@@ -295,5 +295,5 @@ export function waveSpec(wave) {
 }
 
 export function bossWaveName(wave) {
-  return wave % 5 === 0 ? `WAVE ${wave} — IRON CAPTAIN` : `WAVE ${wave}`;
+  return wave % 5 === 0 ? `WAVE ${wave} — ARMOS KNIGHT` : `WAVE ${wave}`;
 }

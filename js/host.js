@@ -2,7 +2,7 @@
 
 import { startHost, send, MAX_PLAYERS } from './net.js';
 import { Game } from './game.js';
-import { heroSheet, PLAYER_COLORS } from './sprites.js';
+import { heroSheet, loadSprites, PLAYER_COLORS } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,10 +44,17 @@ let peer = null;
 
 // ------------------------------------------------------------------ startup
 
-// Paint the lobby and start the render loop immediately — the room code
-// arrives asynchronously and a slow CDN shouldn't leave a dead screen.
-renderSlots();
-requestAnimationFrame(loop);
+// The lobby and the render loop both need the sprite atlas. The room code
+// arrives separately, so a slow CDN never leaves a dead screen.
+loadSprites().then(
+  () => {
+    renderSlots();
+    requestAnimationFrame(loop);
+  },
+  (err) => {
+    ui.lobbyerr.textContent = err.message || String(err);
+  }
+);
 
 (async function boot() {
   try {
@@ -247,12 +254,13 @@ function handleGameEvent(ev) {
 // --------------------------------------------------------------- lobby view
 
 function slotPreview(slot) {
+  const src = heroSheet(slot).down[0];
   const cv = document.createElement('canvas');
-  cv.width = 48;
-  cv.height = 48;
+  cv.width = src.width * 2;
+  cv.height = src.height * 2;
   const c = cv.getContext('2d');
   c.imageSmoothingEnabled = false;
-  c.drawImage(heroSheet(slot).down[0], 0, 0, 16, 16, 0, 0, 48, 48);
+  c.drawImage(src, 0, 0, cv.width, cv.height);
   return cv;
 }
 

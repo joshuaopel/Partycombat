@@ -1,31 +1,56 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><style>
-body{background:#3f7a33;margin:0;padding:20px;font:12px monospace;color:#fff}
-canvas{image-rendering:pixelated;display:block;margin:6px 0 18px}
-</style></head><body>
-<div id="out"></div>
-<script type="module">
-import { heroSheet, enemySprite, prop, swordSprite, PLAYER_COLORS } from '../js/sprites.js';
-const S = 6;
-function row(label, canvases){
-  const d = document.createElement('div');
-  d.textContent = label;
-  const cv = document.createElement('canvas');
-  cv.width = canvases.length * 18 * S; cv.height = 18 * S;
-  const c = cv.getContext('2d'); c.imageSmoothingEnabled = false;
-  canvases.forEach((src,i)=>c.drawImage(src, i*18*S + S, S, src.width*S, src.height*S));
-  d.appendChild(cv);
-  document.getElementById('out').appendChild(d);
-}
-for (let slot=0; slot<6; slot++){
-  const s = heroSheet(slot);
-  row(`hero ${PLAYER_COLORS[slot].name}: down x3, up x3, side x3`,
-      [...s.down, ...s.up, ...s.side]);
-}
-row('downed (grey)', heroSheet(0).downed.down);
-row('enemies: octo grunt bat bones mage knight',
-    ['octo','grunt','bat','bones','mage','knight'].map(enemySprite));
-row('props: heart rupee rock bolt spark + sword',
-    [...['heart','rupee','rock','bolt','spark'].map(prop), swordSprite()]);
-window.__ready = true;
-</script></body></html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Partycombat — sprite check</title>
+    <style>
+      body { background: #2b2b33; margin: 0; padding: 20px; font: 12px monospace; color: #fff; }
+      canvas { image-rendering: pixelated; display: block; margin: 4px 0 16px; }
+      h2 { font-size: 12px; margin: 0 0 4px; color: #ffd24a; letter-spacing: 0.1em; }
+    </style>
+  </head>
+  <body>
+    <div id="out">loading…</div>
+    <script type="module">
+      import {
+        loadSprites, heroSheet, enemyFrames, prop, swordSprite, PLAYER_COLORS,
+      } from '../js/sprites.js';
+
+      const S = 5;
+      const out = document.getElementById('out');
+
+      function row(label, canvases) {
+        const h = document.createElement('h2');
+        h.textContent = label;
+        const cw = Math.max(...canvases.map((c) => c.width)) + 3;
+        const ch = Math.max(...canvases.map((c) => c.height)) + 2;
+        const cv = document.createElement('canvas');
+        cv.width = cw * S * canvases.length;
+        cv.height = ch * S;
+        const c = cv.getContext('2d');
+        c.imageSmoothingEnabled = false;
+        canvases.forEach((src, i) => {
+          // Bottom-align so ground lines match the way the game draws them.
+          c.drawImage(src, i * cw * S + S, (ch - src.height - 1) * S, src.width * S, src.height * S);
+        });
+        out.appendChild(h);
+        out.appendChild(cv);
+      }
+
+      await loadSprites();
+      out.textContent = '';
+
+      for (let slot = 0; slot < PLAYER_COLORS.length; slot++) {
+        const s = heroSheet(slot);
+        row(`${PLAYER_COLORS[slot].name} — walk down / side / up`, [...s.down, ...s.side, ...s.up]);
+      }
+      row('downed (desaturated)', heroSheet(0).downed.down);
+      for (const t of ['octo', 'grunt', 'bat', 'bones', 'mage', 'knight']) {
+        row(`enemy: ${t}`, enemyFrames(t));
+      }
+      row('props + sword', [...['heart', 'rupee', 'rock', 'bolt', 'spark'].map(prop), swordSprite()]);
+
+      window.__ready = true;
+    </script>
+  </body>
+</html>

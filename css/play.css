@@ -60,7 +60,7 @@ form {
 
 #hero-preview {
   width: 96px;
-  height: 96px;
+  height: auto;
   image-rendering: pixelated;
 }
 

@@ -2,7 +2,7 @@
 // host owns all game state, so this file never simulates anything.
 
 import { joinRoom, send } from './net.js';
-import { heroSheet } from './sprites.js';
+import { heroSheet, loadSprites, spritesReady } from './sprites.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -47,6 +47,11 @@ let conn = null;
 let me = null;
 let lastSent = 0;
 let dashLatch = false;
+
+// Start fetching the atlas straight away so the hero preview is instant.
+loadSprites().catch(() => {
+  /* surfaced when the preview is actually needed */
+});
 
 // Prefill from the QR link.
 const params = new URLSearchParams(location.search);
@@ -158,12 +163,16 @@ function onMessage(msg) {
   }
 }
 
-function onSeated() {
+async function onSeated() {
+  if (!spritesReady()) await loadSprites();
   const sheet = heroSheet(me.slot);
+  const src = sheet.down[0];
+  ui.preview.width = src.width;
+  ui.preview.height = src.height;
   const pctx = ui.preview.getContext('2d');
   pctx.imageSmoothingEnabled = false;
-  pctx.clearRect(0, 0, 16, 16);
-  pctx.drawImage(sheet.down[0], 0, 0);
+  pctx.clearRect(0, 0, src.width, src.height);
+  pctx.drawImage(src, 0, 0);
 
   ui.youare.textContent = `${me.name} — ${me.colorName}`;
   ui.youare.style.color = me.color;

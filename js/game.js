@@ -2,7 +2,10 @@
 // receive HUD state. Everything here is deterministic per-frame given inputs,
 // but we don't need lockstep determinism since there's exactly one simulator.
 
-import { heroSheet, enemySprite, prop, drawSprite, drawSword, PLAYER_COLORS } from './sprites.js';
+import {
+  heroSheet, enemySprite, enemyFrames, prop, drawSprite, drawAt, drawGrounded,
+  drawSword, PLAYER_COLORS,
+} from './sprites.js';
 import { W, H, BOUNDS, arenaCanvas, collide, blocked, edgeSpawn, PILLARS } from './arena.js';
 import { ENEMY_TYPES, waveSpec } from './enemies.js';
 
@@ -169,7 +172,7 @@ export class Game {
     this.state = 'fighting';
     this.banner = {
       text: `WAVE ${n}`,
-      sub: this.spec.isBoss ? 'IRON CAPTAIN APPROACHES' : `${this.spawnQueue.length} hostiles`,
+      sub: this.spec.isBoss ? 'AN ARMOS KNIGHT AWAKENS' : `${this.spawnQueue.length} hostiles`,
       t: 2.4,
     };
     this.bestWave = Math.max(this.bestWave, n);
@@ -755,21 +758,23 @@ export class Game {
   drawPlayer(ctx, p) {
     const sheet = heroSheet(p.slot);
     const set = p.downed ? sheet.downed : sheet;
-    const frame = p.moving && !p.downed ? 1 + (Math.floor(p.anim) % 2) : 0;
     const key = p.dir === 'left' || p.dir === 'right' ? 'side' : p.dir;
-    const cv = set[key][frame];
-    const flip = p.dir === 'left';
+    const strip = set[key];
+    const frame = p.moving && !p.downed ? Math.floor(p.anim) % strip.length : 0;
+    const cv = strip[frame];
+    // The source side frames face left, so mirror them for right.
+    const flip = p.dir === 'right';
+    const ground = p.y + 7;
 
-    this.shadow(ctx, p.x, p.y + 7, 6);
+    this.shadow(ctx, p.x, ground, 6);
 
     if (p.downed) {
+      // Tipped on their side, feet where they fell.
       ctx.save();
-      ctx.translate(p.x, p.y + 4);
+      ctx.translate(p.x, ground);
       ctx.rotate(Math.PI / 2);
-      ctx.translate(-p.x, -(p.y + 4));
-      drawSprite(ctx, cv, p.x, p.y + 4, { alpha: 0.85 });
+      drawAt(ctx, cv, 0, 0, sheet.foot, { alpha: 0.85 });
       ctx.restore();
-      // Revive meter.
       const pct = p.reviveProgress / REVIVE_TIME;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(p.x - 11, p.y - 15, 22, 4);
@@ -781,7 +786,10 @@ export class Game {
     // Blink while invulnerable.
     const blink = p.invuln > 0 && Math.floor(p.invuln * 16) % 2 === 0;
     if (!blink) {
-      drawSprite(ctx, cv, p.x, p.y, { flip, tint: p.flash > 0 ? 'rgba(255,80,80,0.55)' : null });
+      drawAt(ctx, cv, p.x, ground, sheet.foot, {
+        flip,
+        tint: p.flash > 0 ? 'rgba(255,80,80,0.55)' : null,
+      });
     }
 
     if (p.atkT > 0) {
@@ -796,29 +804,32 @@ export class Game {
     ctx.font = 'bold 7px monospace';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillText(p.name, p.x + 1, p.y - 12);
+    ctx.fillText(p.name, p.x + 1, p.y - 15);
     ctx.fillStyle = p.color.t;
-    ctx.fillText(p.name, p.x, p.y - 13);
+    ctx.fillText(p.name, p.x, p.y - 16);
   }
 
   drawEnemy(ctx, e) {
-    const cv = enemySprite(e.type);
+    const frames = enemyFrames(e.type);
+    // Two-frame shuffle driven by the same clock as the bob.
+    const cv = frames[Math.floor(e.bob * 0.9) % frames.length];
     const scale = e.def.scale || 1;
-    const bob = Math.sin(e.bob) * (e.type === 'bat' ? 2.5 : 1);
-    this.shadow(ctx, e.x, e.y + 7 * scale, 6 * scale);
+    const hover = e.type === 'bat' ? Math.sin(e.bob) * 2.5 - 3 : 0;
+    const ground = e.y + e.radius * 0.9;
+
+    this.shadow(ctx, e.x, ground, 6 * scale);
 
     ctx.save();
     if (e.spawnT > 0) ctx.globalAlpha = 1 - e.spawnT / 0.45;
     else if (e.alpha !== 1) ctx.globalAlpha = e.alpha;
-
     if (scale !== 1) {
-      ctx.translate(e.x, e.y + bob);
+      ctx.translate(e.x, ground);
       ctx.scale(scale, scale);
-      ctx.translate(-e.x, -(e.y + bob));
+      ctx.translate(-e.x, -ground);
     }
-    // Telegraph the boss wind-up / grunt lunge prep with a red tint.
+    // Telegraph the boss wind-up and the grunt's lunge prep with a red tint.
     const winding = e.mode === 'wind' || e.mode === 'slam';
-    drawSprite(ctx, cv, e.x, e.y + bob, {
+    drawGrounded(ctx, cv, e.x, ground + hover, {
       flip: e.face === 'l',
       tint: e.flash > 0 ? 'rgba(255,255,255,0.75)' : winding ? 'rgba(255,60,60,0.45)' : null,
     });
@@ -827,9 +838,9 @@ export class Game {
     if (e.def.boss) {
       const w = 60;
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(e.x - w / 2 - 1, e.y - 30, w + 2, 6);
+      ctx.fillRect(e.x - w / 2 - 1, e.y - 34, w + 2, 6);
       ctx.fillStyle = '#e2453c';
-      ctx.fillRect(e.x - w / 2, e.y - 29, w * Math.max(0, e.hp / e.maxHp), 4);
+      ctx.fillRect(e.x - w / 2, e.y - 33, w * Math.max(0, e.hp / e.maxHp), 4);
     }
   }
 

@@ -125,8 +125,8 @@ body {
 }
 
 .slot canvas {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: auto;
   image-rendering: pixelated;
   flex: none;
 }

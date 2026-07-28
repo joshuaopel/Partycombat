@@ -1,339 +1,195 @@
-// Original ALTTP-style pixel art, authored as indexed-colour character grids.
-// Each character maps to a palette entry; swapping the 't'/'T' entries recolours
-// a hero's cap and tunic without touching skin, hair or boots.
+// Sprite loading, palette swapping and drawing.
+//
+// Art comes from a small atlas (assets/sprites.png) built by tools/build_atlas.py
+// from A Link to the Past reference sheets — only the frames this game actually
+// draws. Heroes are recoloured at load time by remapping the five palette
+// entries that the game itself swaps between green, blue and red mail.
 
-export const PAL = {
-  '.': null,
-  o: '#1a1420', // hard outline
-  s: '#f8c89c', // skin
-  d: '#c98a5e', // skin shadow
-  h: '#f2d04a', // hair
-  H: '#b8921f', // hair shadow
-  t: '#4fbf5a', // tunic (overridden per player)
-  T: '#2a7a35', // tunic shadow (overridden per player)
-  b: '#7a4a1e', // leather
-  B: '#4d2c10', // leather shadow
-  w: '#ffffff',
-  m: '#d8dee9', // steel
-  M: '#8b95a6', // steel shadow
-  K: '#15151a',
-  k: '#2b2b33',
-  e: '#e8e4d8', // bone
-  E: '#b3ae9c', // bone shadow
-  r: '#e2453c',
-  R: '#8f1f1c',
-  g: '#3fa34d',
-  G: '#20642c',
-  u: '#4a7fd4',
-  U: '#26467f',
-  p: '#a05fd0',
-  P: '#5c2f80',
-  y: '#ffd24a',
-  n: '#8a5a2b',
-  x: '#8a8a96', // stone
-  X: '#5a5a66',
-};
+const ATLAS_URL = new URL('../assets/sprites.png', import.meta.url);
+const META_URL = new URL('../assets/sprites.json', import.meta.url);
 
+// The five mail palette entries, in the order the ramps below use:
+// [cap dark, tunic light, cap light, tunic dark, strap]
+const MAIL_KEYS = ['509010', '40d870', '78b820', '389068', '885828'];
+
+// Green, blue and red are the game's own mail palettes. The other three follow
+// the same structure — a contrasting cap accent over a distinct tunic — so six
+// players stay tellable apart at a glance.
 export const PLAYER_COLORS = [
-  { name: 'Green', t: '#4fbf5a', T: '#2a7a35' },
-  { name: 'Red', t: '#e2564a', T: '#8f2a22' },
-  { name: 'Blue', t: '#4f8fe0', T: '#25508f' },
-  { name: 'Violet', t: '#a763d8', T: '#5f3388' },
-  { name: 'Amber', t: '#f0973a', T: '#a1581a' },
-  { name: 'Teal', t: '#43cfc4', T: '#1d7b74' },
-];
+  { name: 'Green', ramp: ['509010', '40d870', '78b820', '389068', '885828'] },
+  { name: 'Blue', ramp: ['c0a848', '88a0e8', 'f8d880', '0060d0', 'c86020'] },
+  { name: 'Red', ramp: ['9878d8', 'f05888', 'c8a8f8', 'b81020', '388840'] },
+  { name: 'Violet', ramp: ['3f8f7f', 'c88ae8', '7fd8c8', '6b28a8', 'b8862f'] },
+  { name: 'Amber', ramp: ['3a5fa8', 'ffc060', '7fa8e8', 'c85a10', '6a8f30'] },
+  { name: 'Cyan', ramp: ['b85040', '60e0e0', 'f09080', '127a90', 'c8a030'] },
+].map((c) => ({
+  ...c,
+  // Tunic light reads as the player's colour in UI chrome and name tags.
+  t: `#${c.ramp[1]}`,
+  T: `#${c.ramp[3]}`,
+}));
 
-// ---------------------------------------------------------------- hero frames
+let atlas = null;
+let meta = null;
+let loading = null;
 
-const HERO_DOWN = [
-  '....oooooooo....',
-  '...oTttttttTo...',
-  '..oTttttttttTo..',
-  '..ohhhhhhhhhho..',
-  '..ohssssssssho..',
-  '..ohsowsswosho..',
-  '..ohssssssssho..',
-  '..oddssssssddo..',
-  '...oddddddddo...',
-  '...otttttttto...',
-  '..osTttttttTso..',
-  '..osTttttttTso..',
-  '...oTttbbttTo...',
-  '...oTttttttTo...',
-  '....obbbbbbo....',
-  '....oBBooBBo....',
-];
-
-const HERO_UP = [
-  '....oooooooo....',
-  '...oTttttttTo...',
-  '..oTttttttttTo..',
-  '..oTttttttttTo..',
-  '..oThhhhhhhhTo..',
-  '..ohhhhhhhhhho..',
-  '..ohHhhhhhhHho..',
-  '..oHHhhhhhhHHo..',
-  '...oHHHHHHHHo...',
-  '...otttttttto...',
-  '..osTttttttTso..',
-  '..osTttttttTso..',
-  '...oTttbbttTo...',
-  '...oTttttttTo...',
-  '....obbbbbbo....',
-  '....oBBooBBo....',
-];
-
-// Side view faces right; the renderer mirrors it for left.
-const HERO_SIDE = [
-  '....oooooooo....',
-  '...oTttttttTo...',
-  '..oTtttttttto...',
-  '..ohhhhhhssso...',
-  '..ohhhhhsssso...',
-  '..ohhhhsowsso...',
-  '..ohhhhssssso...',
-  '..oHHhdsssso....',
-  '...oHHddddo.....',
-  '...ottttttto....',
-  '..otttttttso....',
-  '..oTtttttto.....',
-  '...oTtbbtTo.....',
-  '...oTttttTo.....',
-  '...obbbbbo......',
-  '...oBBoBBo......',
-];
-
-// Walk cycles only differ in the two boot rows, so derive them. This keeps the
-// frames guaranteed consistent with the idle pose above.
-const legs = (base, r14, r15) => base.map((row, i) => (i === 14 ? r14 : i === 15 ? r15 : row));
-
-const FRONT_STEP_A = ['...obbbo.obbo...', '...oBBo...oBo...'];
-const FRONT_STEP_B = ['...obbo.obbbo...', '...oBo...oBBo...'];
-const SIDE_STEP_A = ['..obbbo.obbo....', '..oBBo...oBo....'];
-const SIDE_STEP_B = ['...obbo.obbbo...', '...oBo...oBBo...'];
-
-const HERO = {
-  down: [HERO_DOWN, legs(HERO_DOWN, ...FRONT_STEP_A), legs(HERO_DOWN, ...FRONT_STEP_B)],
-  up: [HERO_UP, legs(HERO_UP, ...FRONT_STEP_A), legs(HERO_UP, ...FRONT_STEP_B)],
-  side: [HERO_SIDE, legs(HERO_SIDE, ...SIDE_STEP_A), legs(HERO_SIDE, ...SIDE_STEP_B)],
-};
-
-// Drawn pointing up; the renderer rotates it to swing through an arc.
-const SWORD = [
-  '..mo..',
-  '.mmo..',
-  '.mMo..',
-  '.mMo..',
-  '.mMo..',
-  '.mMo..',
-  '.mMo..',
-  '.mMo..',
-  'oyyyyo',
-  '.oyyo.',
-  '..nn..',
-  '..nn..',
-  '.onno.',
-  '..oo..',
-];
-
-// -------------------------------------------------------------- enemy frames
-
-const ENEMY_ART = {
-  octo: [
-    '......oooo......',
-    '....oorrrroo....',
-    '...orrrrrrrro...',
-    '..orrrrrrrrrro..',
-    '..orrwrrrrwrro..',
-    '..orrorrrrorro..',
-    '..orrrroorrrro..',
-    '..orrrroorrrro..',
-    '..oRrrrrrrrrRo..',
-    '...oRRrrrrRRo...',
-    '....oRRRRRRo....',
-    '...oRo.oo.oRo...',
-    '...oRo.oo.oRo...',
-    '..oRRo....oRRo..',
-    '..oooo....oooo..',
-    '................',
-  ],
-  grunt: [
-    '.....oooooo.....',
-    '....oMmmmmMo....',
-    '...oMmmmmmmMo...',
-    '...oMooooooMo...',
-    '...okkrkkrkko...',
-    '...okkkkkkkko...',
-    '....oMMMMMMo....',
-    '..ouuuUUuuuuo...',
-    '..ouuuuuuuuuuo..',
-    '..ouUuuuuuuUuo..',
-    '..ouUuuuuuuUuo..',
-    '...oUuuuuuuUo...',
-    '...oUuuUUuuUo...',
-    '...oBBo..oBBo...',
-    '...oBBo..oBBo...',
-    '...oooo..oooo...',
-  ],
-  bat: [
-    '................',
-    '..oo........oo..',
-    '.okko......okko.',
-    '.okkko....okkko.',
-    '.okkkkkookkkkko.',
-    '..okkkkkkkkkko..',
-    '...okkrkkrkko...',
-    '...okkkkkkkko...',
-    '....okkkkkko....',
-    '.....okkkko.....',
-    '......oooo......',
-    '................',
-    '................',
-    '................',
-    '................',
-    '................',
-  ],
-  bones: [
-    '.....oooooo.....',
-    '....oeeeeeeo....',
-    '...oeeeeeeeeo...',
-    '...oeokeekoeo...',
-    '...oeeeeeeeeo...',
-    '....oekekeko....',
-    '.....oeeeeo.....',
-    '..oeeoEEEEoeeo..',
-    '..oeeoEeeEoeeo..',
-    '..oeeoEEEEoeeo..',
-    '...oooEeeEooo...',
-    '.....oEEEEo.....',
-    '....oEEooEEo....',
-    '....oeo..oeo....',
-    '....oeo..oeo....',
-    '...oeeo..oeeo...',
-  ],
-  mage: [
-    '......oooo......',
-    '....oopppppoo...',
-    '...oppppppppo...',
-    '..opppppppppo...',
-    '..oPPPPPPPPPPo..',
-    '..oPkkkkkkkkPo..',
-    '..oPkykkykkPo...',
-    '..oPkkkkkkkkPo..',
-    '...oppppppppo...',
-    '..opppppppppo...',
-    '..oPppppppppPo..',
-    '.oPppppppppppPo.',
-    '.oPppppppppppPo.',
-    'oPPppppppppppPPo',
-    'oPPPPPPPPPPPPPPo',
-    '.oooooooooooooo.',
-  ],
-  knight: [
-    '..oo........oo..',
-    '.oyyo......oyyo.',
-    '.oyyoMMMMMMoyyo.',
-    '..ooMMMMMMMMoo..',
-    '...oMMMMMMMMo...',
-    '...oMkkrrkkMo...',
-    '...oMkkkkkkMo...',
-    '...oMMMMMMMMo...',
-    '..oMMoyyyyoMMo..',
-    '.oMMMoyyyyoMMMo.',
-    '.oMMMMKKKKMMMMo.',
-    '.oMMMKKKKKKMMMo.',
-    '..oMMKKKKKKMMo..',
-    '..oMMoKKKKoMMo..',
-    '...oMoKKKKoMo...',
-    '...oMMo..oMMo...',
-  ],
-};
-
-// ------------------------------------------------------- props & projectiles
-
-const PROP_ART = {
-  heart: [
-    '.oo..oo.',
-    'orroorro',
-    'orrrrrro',
-    'orrrrrro',
-    '.orrrro.',
-    '..orro..',
-    '...oo...',
-    '........',
-  ],
-  rupee: [
-    '...oo...',
-    '..oggo..',
-    '.oggggo.',
-    'oggggggo',
-    'oggggggo',
-    '.oggggo.',
-    '..oggo..',
-    '...oo...',
-  ],
-  rock: [
-    '..oooo..',
-    '.oxxxxo.',
-    'oxxxxxxo',
-    'oxxXXxxo',
-    'oxxXXxxo',
-    'oxxxxxxo',
-    '.oxxxxo.',
-    '..oooo..',
-  ],
-  bolt: [
-    '..oooo..',
-    '.opppo..',
-    'oppwwppo',
-    'oppwwppo',
-    'oppppppo',
-    '.oppppo.',
-    '..oooo..',
-    '........',
-  ],
-  spark: [
-    '...oo...',
-    '..oyyo..',
-    '.oywwyo.',
-    'oywwwwyo',
-    'oywwwwyo',
-    '.oywwyo.',
-    '..oyyo..',
-    '...oo...',
-  ],
-};
-
-// ------------------------------------------------------------------ renderer
-
-function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+/** Load the atlas + metadata. Safe to call repeatedly; resolves once. */
+export function loadSprites() {
+  if (loading) return loading;
+  loading = Promise.all([
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Could not load assets/sprites.png'));
+      img.src = ATLAS_URL;
+    }),
+    fetch(META_URL).then((r) => {
+      if (!r.ok) throw new Error('Could not load assets/sprites.json');
+      return r.json();
+    }),
+  ]).then(([img, m]) => {
+    atlas = img;
+    meta = m;
+    return true;
+  });
+  return loading;
 }
 
-/** Rasterise a character grid into an offscreen canvas at 1 pixel per cell. */
-function rasterise(rows, overrides = {}) {
-  const w = rows[0].length;
-  const h = rows.length;
+export const spritesReady = () => atlas !== null;
+
+function canvasOf(w, h) {
   const cv = document.createElement('canvas');
   cv.width = w;
   cv.height = h;
+  return cv;
+}
+
+/** Cut one atlas rect into its own canvas. */
+function slice(rect) {
+  const [x, y, w, h] = rect;
+  const cv = canvasOf(w, h);
+  const c = cv.getContext('2d');
+  c.imageSmoothingEnabled = false;
+  c.drawImage(atlas, x, y, w, h, 0, 0, w, h);
+  return cv;
+}
+
+const hex = (h) => [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+
+/** Remap the mail palette entries in place. */
+function recolour(cv, ramp) {
+  const c = cv.getContext('2d');
+  const img = c.getImageData(0, 0, cv.width, cv.height);
+  const d = img.data;
+  const from = MAIL_KEYS.map(hex);
+  const to = ramp.map(hex);
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    for (let k = 0; k < from.length; k++) {
+      if (d[i] === from[k][0] && d[i + 1] === from[k][1] && d[i + 2] === from[k][2]) {
+        d[i] = to[k][0];
+        d[i + 1] = to[k][1];
+        d[i + 2] = to[k][2];
+        break;
+      }
+    }
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
+function toGrey(src) {
+  const cv = canvasOf(src.width, src.height);
+  const c = cv.getContext('2d');
+  c.drawImage(src, 0, 0);
+  const img = c.getImageData(0, 0, cv.width, cv.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    const l = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) * 0.75;
+    d[i] = d[i + 1] = d[i + 2] = l;
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
+const heroCache = new Map();
+const enemyCache = new Map();
+
+export function heroSheet(slot) {
+  if (heroCache.has(slot)) return heroCache.get(slot);
+  const colour = PLAYER_COLORS[slot % PLAYER_COLORS.length];
+  const cut = (group) => meta.frames[group].map((r) => recolour(slice(r), colour.ramp));
+  const sheet = {
+    down: cut('hero_down'),
+    side: cut('hero_side'),
+    up: cut('hero_up'),
+    color: colour,
+    // Frames are foot-anchored: the ground line sits `foot` pixels down.
+    foot: meta.hero.foot,
+  };
+  sheet.downed = {
+    down: sheet.down.map(toGrey),
+    side: sheet.side.map(toGrey),
+    up: sheet.up.map(toGrey),
+  };
+  heroCache.set(slot, sheet);
+  return sheet;
+}
+
+/** All frames for an enemy type, bottom-anchored. */
+export function enemyFrames(type) {
+  if (enemyCache.has(type)) return enemyCache.get(type);
+  const group = meta.enemies[type] || meta.enemies.grunt;
+  const frames = meta.frames[group].map(slice);
+  enemyCache.set(type, frames);
+  return frames;
+}
+
+export function enemySprite(type, frame = 0) {
+  const f = enemyFrames(type);
+  return f[frame % f.length];
+}
+
+// ---------------------------------------------------------- hand-drawn props
+// Pickups, projectiles and the swing sword stay as small original pixel art —
+// they are icons rather than characters, and authoring them keeps the atlas
+// to just the frames that need to be authentic.
+
+const PAL = {
+  '.': null, o: '#1a1420', w: '#ffffff', m: '#d8dee9', M: '#8b95a6',
+  r: '#e2453c', R: '#8f1f1c', g: '#3fa34d', y: '#ffd24a', n: '#8a5a2b',
+  p: '#a05fd0', x: '#8a8a96', X: '#5a5a66',
+};
+
+const PROP_ART = {
+  heart: ['.oo..oo.', 'orroorro', 'orrrrrro', 'orrrrrro', '.orrrro.', '..orro..', '...oo...', '........'],
+  rupee: ['...oo...', '..oggo..', '.oggggo.', 'oggggggo', 'oggggggo', '.oggggo.', '..oggo..', '...oo...'],
+  rock: ['..oooo..', '.oxxxxo.', 'oxxxxxxo', 'oxxXXxxo', 'oxxXXxxo', 'oxxxxxxo', '.oxxxxo.', '..oooo..'],
+  bolt: ['..oooo..', '.opppo..', 'oppwwppo', 'oppwwppo', 'oppppppo', '.oppppo.', '..oooo..', '........'],
+  spark: ['...oo...', '..oyyo..', '.oywwyo.', 'oywwwwyo', 'oywwwwyo', '.oywwyo.', '..oyyo..', '...oo...'],
+};
+
+const SWORD = [
+  '..mo..', '.mmo..', '.mMo..', '.mMo..', '.mMo..', '.mMo..', '.mMo..',
+  '.mMo..', 'oyyyyo', '.oyyo.', '..nn..', '..nn..', '.onno.', '..oo..',
+];
+
+function rasterise(rows) {
+  const w = rows[0].length;
+  const h = rows.length;
+  const cv = canvasOf(w, h);
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(w, h);
-  const palette = { ...PAL, ...overrides };
-  const cache = {};
-
   for (let y = 0; y < h; y++) {
-    const row = rows[y];
     for (let x = 0; x < w; x++) {
-      const ch = row[x];
-      const hex = palette[ch];
-      if (!hex) continue;
-      const rgb = cache[ch] || (cache[ch] = hexToRgb(hex));
+      const col = PAL[rows[y][x]];
+      if (!col) continue;
+      const [r, g, b] = hex(col.slice(1));
       const i = (y * w + x) * 4;
-      img.data[i] = rgb[0];
-      img.data[i + 1] = rgb[1];
-      img.data[i + 2] = rgb[2];
+      img.data[i] = r;
+      img.data[i + 1] = g;
+      img.data[i + 2] = b;
       img.data[i + 3] = 255;
     }
   }
@@ -341,55 +197,10 @@ function rasterise(rows, overrides = {}) {
   return cv;
 }
 
-/** Desaturate a rendered canvas — used for knocked-down heroes. */
-function toGrey(src) {
-  const cv = document.createElement('canvas');
-  cv.width = src.width;
-  cv.height = src.height;
-  const ctx = cv.getContext('2d');
-  ctx.drawImage(src, 0, 0);
-  const img = ctx.getImageData(0, 0, cv.width, cv.height);
-  for (let i = 0; i < img.data.length; i += 4) {
-    if (!img.data[i + 3]) continue;
-    const l = (img.data[i] * 0.3 + img.data[i + 1] * 0.59 + img.data[i + 2] * 0.11) * 0.75;
-    img.data[i] = img.data[i + 1] = img.data[i + 2] = l;
-  }
-  ctx.putImageData(img, 0, 0);
-  return cv;
-}
-
-const heroCache = new Map();
-const enemyCache = new Map();
 const propCache = new Map();
-
-export function heroSheet(slot) {
-  if (heroCache.has(slot)) return heroCache.get(slot);
-  const c = PLAYER_COLORS[slot % PLAYER_COLORS.length];
-  const over = { t: c.t, T: c.T };
-  const sheet = {
-    down: HERO.down.map((f) => rasterise(f, over)),
-    up: HERO.up.map((f) => rasterise(f, over)),
-    side: HERO.side.map((f) => rasterise(f, over)),
-    color: c,
-  };
-  sheet.downed = { down: sheet.down.map(toGrey), up: sheet.up.map(toGrey), side: sheet.side.map(toGrey) };
-  heroCache.set(slot, sheet);
-  return sheet;
-}
-
-export function enemySprite(type) {
-  if (enemyCache.has(type)) return enemyCache.get(type);
-  const art = ENEMY_ART[type] || ENEMY_ART.grunt;
-  const cv = rasterise(art);
-  enemyCache.set(type, cv);
-  return cv;
-}
-
 export function prop(name) {
-  if (propCache.has(name)) return propCache.get(name);
-  const cv = rasterise(PROP_ART[name]);
-  propCache.set(name, cv);
-  return cv;
+  if (!propCache.has(name)) propCache.set(name, rasterise(PROP_ART[name]));
+  return propCache.get(name);
 }
 
 let swordCanvas = null;
@@ -398,21 +209,35 @@ export function swordSprite() {
   return swordCanvas;
 }
 
-/** Draw a sprite centred on (x, y) in logical pixels. */
+// ------------------------------------------------------------------ drawing
+
+/** Draw a sprite centred on (x, y). */
 export function drawSprite(ctx, cv, x, y, { flip = false, alpha = 1, tint = null } = {}) {
+  drawAt(ctx, cv, x, y, cv.height / 2, { flip, alpha, tint });
+}
+
+/**
+ * Draw a sprite so that the row `anchor` pixels from its top lands on y —
+ * used to stand characters on a ground line regardless of frame height.
+ */
+export function drawAt(ctx, cv, x, y, anchor, { flip = false, alpha = 1, tint = null } = {}) {
   const hw = cv.width / 2;
-  const hh = cv.height / 2;
   ctx.save();
   if (alpha !== 1) ctx.globalAlpha = alpha;
   ctx.translate(Math.round(x), Math.round(y));
   if (flip) ctx.scale(-1, 1);
-  ctx.drawImage(cv, -hw, -hh);
+  ctx.drawImage(cv, -hw, -anchor);
   if (tint) {
     ctx.globalCompositeOperation = 'source-atop';
     ctx.fillStyle = tint;
-    ctx.fillRect(-hw, -hh, cv.width, cv.height);
+    ctx.fillRect(-hw, -anchor, cv.width, cv.height);
   }
   ctx.restore();
+}
+
+/** Draw a character standing on the ground line at (x, groundY). */
+export function drawGrounded(ctx, cv, x, groundY, opts) {
+  drawAt(ctx, cv, x, groundY, cv.height, opts);
 }
 
 /** Draw the sword rotated about the hero's hand for the slash arc. */
@@ -422,9 +247,6 @@ export function drawSword(ctx, x, y, angle, alpha = 1) {
   ctx.globalAlpha = alpha;
   ctx.translate(Math.round(x), Math.round(y));
   ctx.rotate(angle);
-  // Pivot at the grip (near the bottom of the sprite), blade pointing "up".
   ctx.drawImage(cv, -cv.width / 2, -cv.height + 3);
   ctx.restore();
 }
-
-export const SPRITE_SOURCES = { HERO, ENEMY_ART, PROP_ART, SWORD };
