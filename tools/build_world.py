@@ -47,6 +47,66 @@ PROPS = {
     'sprout':      (22, 0, 2),
 }
 
+OUTLINE = (40, 40, 40)
+
+def _flood(a, fillable):
+    """Clear every pixel reachable from the border through `fillable` colours."""
+    h, w = a.shape[:2]
+    seen = np.zeros((h, w), bool)
+    stack = []
+
+    def push(x, y):
+        if 0 <= x < w and 0 <= y < h and not seen[y, x] and a[y, x, 3] > 0 \
+                and tuple(a[y, x, :3]) in fillable:
+            seen[y, x] = True
+            stack.append((x, y))
+
+    for i in range(w):
+        push(i, 0); push(i, h - 1)
+    for j in range(h):
+        push(0, j); push(w - 1, j)
+    while stack:
+        x, y = stack.pop()
+        push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1)
+    a[seen] = (0, 0, 0, 0)
+    return a
+
+def _white_stripped(img):
+    a = _flood(np.array(img.convert('RGBA')), {(255, 255, 255)})
+    ys, xs = np.where(a[:, :, 3] > 0)
+    return a, (ys, xs)
+
+def learn_backing(img):
+    """Read the shades of the grass tile props were ripped on.
+
+    Sampled from the outer ring of the biggest prop, which is nothing but sheet
+    background, grass and outline. Small props can't be sampled this way — a
+    bush's own colour reaches its border and would end up in the palette,
+    erasing the bush.
+    """
+    a = np.array(img.convert('RGBA'))
+    h, w = a.shape[:2]
+    ring = list(a[0]) + list(a[h - 1]) + list(a[:, 0]) + list(a[:, w - 1])
+    return {tuple(px[:3]) for px in ring
+            if tuple(px[:3]) not in (OUTLINE, (255, 255, 255))}
+
+def strip_backing(img, grass):
+    """Remove both backgrounds a prop was ripped on.
+
+    Props sit on a square of overworld grass, which itself sits on the sheet's
+    white background. Baking the grass in paints bright green rectangles over
+    whatever the prop is placed on, and makes overlapping props cut chunks out
+    of each other. The prop's own dark outline stops the fill, so grass *inside*
+    the silhouette survives.
+    """
+    a, _ = _white_stripped(img)
+    return Image.fromarray(_flood(a, grass))
+
+def trim(img):
+    a = np.array(img)
+    ys, xs = np.where(a[:, :, 3] > 0)
+    return img.crop((xs.min(), ys.min(), xs.max() + 1, ys.max() + 1))
+
 def components(im, box, bg, minw=10, minh=10):
     sub = im.crop(box); a = np.array(sub)
     mask = (a[:, :, 0] == bg[0]) & (a[:, :, 1] == bg[1]) & (a[:, :, 2] == bg[2])
@@ -70,15 +130,16 @@ for kind, coords in GROUND.items():
 ow = Image.open(os.path.join(SRC, 'sheets/overworld.png')).convert('RGB')
 WHITE = (255, 255, 255)
 comps = components(ow, (0, 0, 450, 520), WHITE)
+_tx, _ty, _tw, _th = comps[PROPS['tree_green'][0]]
+GRASS = learn_backing(ow.crop((_tx, _ty, _tx + _tw, _ty + _th)))
+print(f'grass backing: {len(GRASS)} shades {sorted(GRASS)}')
+
 props = {}
 for name, (idx, radius, foot) in PROPS.items():
     x, y, w, h = comps[idx]
-    a = np.array(ow.crop((x, y, x + w, y + h)).convert('RGBA'))
-    # Only the sheet's white background becomes transparent; the grass backing
-    # each prop sits on is kept, since props are only placed on grass.
-    a[(a[:, :, 0] == 255) & (a[:, :, 1] == 255) & (a[:, :, 2] == 255)] = (0, 0, 0, 0)
-    props[name] = (Image.fromarray(a), radius, foot)
-    print(f'{name:11s} {w}x{h} r={radius}')
+    img = trim(strip_backing(ow.crop((x, y, x + w, y + h)), GRASS))
+    props[name] = (img, radius, foot)
+    print(f'{name:11s} {w}x{h} -> {img.width}x{img.height} r={radius}')
 
 # ------------------------------------------------------------------ packing
 rows = []

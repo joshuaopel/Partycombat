@@ -130,9 +130,18 @@ Trees clump into woods where a separate noise field is high.
 
 Ground tiles are sampled from the assembled Light World map — they are the
 game's real terrain tiles, taken in context — and props (the big round trees,
-boulders, bushes, stumps) come from the Overworld Tiles sheet. The whole
-island is baked once to an offscreen canvas and each camera blits a sub-rect
-of it, which costs one `drawImage` per frame regardless of world size.
+boulders, bushes, stumps) come from the Overworld Tiles sheet. The ground is
+baked once to an offscreen canvas and each camera blits a sub-rect of it,
+which costs one `drawImage` per frame regardless of world size.
+
+Props are *not* baked. They join the depth sort with players and enemies, so a
+hero standing north of a tree is drawn behind its canopy rather than on top of
+it. A canopy that would completely swallow a hero fades to 45% — without that
+you can lose track of yourself entirely while standing next to a tree.
+
+Every prop carries a minimum spacing (60px for trees, which are 64px wide) so
+canopies never overlap and a wood reads as individual trees. Blocking radii are
+sized to each prop's base rather than its silhouette.
 
 Collision is axis-separated so bodies slide along a shoreline or a tree
 instead of sticking to it. Water is the only impassable terrain; solid props
@@ -167,6 +176,12 @@ colour, so they do not depend on hand-typed pixel coordinates. Ground tiles
 were chosen by frequency-scanning the Light World map on its 16px grid and
 keeping the most common terrain.
 
+Props need two flood-fill passes, because they are ripped on two nested
+backgrounds: a square of overworld grass, itself on the sheet's white. The
+white goes first; the grass palette is then read off the biggest prop's outer
+ring and cleared everywhere. Leaving the grass in would paint bright green
+rectangles over whatever a prop is placed on.
+
 ## Layout
 
 ```
@@ -193,10 +208,12 @@ tests/world.html    generates an island and shows it whole and at 1:1
 
 ## Tests
 
-Open `tests/sim.html` in a browser — it runs 46 assertions against the
+Open `tests/sim.html` in a browser — it runs 54 assertions against the
 simulation (combat resolves, waves advance and escalate, downing, revival and
-bleedout, six-player seating, world collision and shoreline sliding, seed
-determinism, and snapshot encode/decode round-tripping) and prints pass/fail.
+bleedout, six-player seating, world collision, shoreline sliding, prop spacing
+and solidity, seed determinism, and snapshot encode/decode round-tripping) and
+prints pass/fail. Every case runs on a fixed seed so the suite is
+deterministic.
 
 `tests/sprites.html` renders every frame of every mail colour and enemy.
 `tests/world.html` generates an island and shows it both whole and at 1:1;

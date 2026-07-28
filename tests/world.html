@@ -22,7 +22,19 @@
       const w = new World(seed);
       const gen = performance.now() - t0;
       const t1 = performance.now();
-      const baked = w.bake();
+      // Props are drawn per frame in the game so entities can sort against
+      // them; compose a full picture here to eyeball placement.
+      const baked = document.createElement('canvas');
+      baked.width = WORLD_W;
+      baked.height = WORLD_H;
+      const bc = baked.getContext('2d');
+      bc.imageSmoothingEnabled = false;
+      bc.drawImage(w.bake(), 0, 0);
+      for (const p of [...w.props].sort((a, b) => a.y - b.y)) {
+        const r = w.propRect(p.name);
+        bc.drawImage(w.sheet, r[0], r[1], r[2], r[3],
+          Math.round(p.x - r[2] / 2), Math.round(p.y + p.foot - r[3]), r[2], r[3]);
+      }
       const bake = performance.now() - t1;
 
       out.textContent = '';

@@ -209,13 +209,34 @@ export function drawScene(ctx, world, cam, scene, opts = {}) {
     ctx.restore();
   }
 
-  // Depth sort so sprites overlap correctly.
+  // Depth sort so sprites overlap correctly. Props join the sort rather than
+  // being baked into the ground, so a hero standing north of a tree is drawn
+  // behind its canopy instead of on top of it.
   const drawables = [];
+  const heroes = scene.players || [];
+  for (const p of world.propsIn(cam.x - 80, cam.y - 96, cam.x + vw + 80, cam.y + vh + 96)) {
+    drawables.push({ y: p.y, prop: p });
+  }
   for (const e of scene.enemies || []) if (cam.visible(e.x, e.y)) drawables.push({ y: e.y, e });
   for (const p of scene.players || []) if (cam.visible(p.x, p.y)) drawables.push({ y: p.y, p });
   drawables.sort((a, b) => a.y - b.y);
+  const propSheet = world.sheet;
   for (const d of drawables) {
-    if (d.e) drawEnemy(ctx, d.e);
+    if (d.prop) {
+      const r = world.propRect(d.prop.name);
+      if (!r) continue;
+      const px = Math.round(d.prop.x - r[2] / 2);
+      const py = Math.round(d.prop.y + d.prop.foot - r[3]);
+      // A canopy that would completely swallow a hero fades out. Without this
+      // you can lose track of yourself entirely while standing next to a tree.
+      const hides = r[3] > 40 && heroes.some(
+        (h) => h.y < d.prop.y && h.x > px - 4 && h.x < px + r[2] + 4 &&
+               h.y > py && h.y < py + r[3] + 8
+      );
+      if (hides) ctx.globalAlpha = 0.45;
+      ctx.drawImage(propSheet, r[0], r[1], r[2], r[3], px, py, r[2], r[3]);
+      if (hides) ctx.globalAlpha = 1;
+    } else if (d.e) drawEnemy(ctx, d.e);
     else drawPlayer(ctx, d.p, { names, highlight });
   }
 

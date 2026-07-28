@@ -11,7 +11,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 1. a lone player can clear wave 1 by mashing attack while chasing
 {
-  const g = new Game();
+  const g = new Game({ seed: 101 });
   const p = g.addPlayer('a', 'TEST');
   ok(!!p && p.slot === 0, 'addPlayer seats slot 0');
   g.start();
@@ -37,7 +37,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 2. enemies damage and eventually down a passive player
 {
-  const g = new Game();
+  const g = new Game({ seed: 102 });
   const p = g.addPlayer('a', 'PASSIVE');
   g.start();
   step(g, 3);
@@ -48,7 +48,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 3. solo down => gameover; two players => revive works
 {
-  const g = new Game();
+  const g = new Game({ seed: 103 });
   const p = g.addPlayer('a', 'SOLO');
   g.start();
   step(g, 3);
@@ -58,7 +58,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   ok(g.state === 'gameover', `last player down ends the run (state=${g.state})`);
 }
 {
-  const g = new Game();
+  const g = new Game({ seed: 104 });
   const a = g.addPlayer('a', 'A');
   const b = g.addPlayer('b', 'B');
   ok(a.slot !== b.slot, 'two players get different slots');
@@ -73,7 +73,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 3b. bleeding out blocks teammate revives, clearing the wave restores you
 {
-  const g = new Game();
+  const g = new Game({ seed: 105 });
   const a = g.addPlayer('a', 'A');
   const b = g.addPlayer('b', 'B');
   g.start();
@@ -105,7 +105,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 5. a boss wave actually runs without exploding
 {
-  const g = new Game();
+  const g = new Game({ seed: 106 });
   const p = g.addPlayer('a', 'X');
   g.start();
   step(g, 3);
@@ -121,7 +121,7 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
 
 // ---- 6. six players all fit, seventh is refused
 {
-  const g = new Game();
+  const g = new Game({ seed: 107 });
   for (let i = 0; i < 6; i++) ok(!!g.addPlayer('p' + i, 'P' + i), `player ${i + 1} seated`);
   ok(g.addPlayer('p6', 'P6') === null, 'seventh player refused');
   const slots = new Set([...g.players.values()].map(p => p.slot));
@@ -166,6 +166,53 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
     ok(!g.world.inWater(body.x, body.y, 7), 'walking into water never enters it');
     ok(body.y > shore.y + 5, `still slides along the shore (moved ${(body.y - shore.y).toFixed(0)}px along)`);
   }
+}
+
+// ---- 7b. props are spaced apart and solid
+{
+  const { World } = await import('../js/world.js');
+  const w = new World(31337);
+  const trees = w.props.filter((p) => p.name.startsWith('tree'));
+  ok(trees.length > 40, `island grew a decent wood (${trees.length} trees)`);
+
+  // No two trees may overlap: canopies are ~60px wide, so their centres have
+  // to stay at least that far apart or they read as one green smear.
+  let worst = Infinity, pair = null;
+  for (let i = 0; i < trees.length; i++) {
+    for (let j = i + 1; j < trees.length; j++) {
+      const d = Math.hypot(trees[i].x - trees[j].x, trees[i].y - trees[j].y);
+      if (d < worst) { worst = d; pair = [trees[i], trees[j]]; }
+    }
+  }
+  ok(worst >= 60, `no two trees overlap (closest pair ${worst.toFixed(1)}px apart)`);
+
+  // Every prop keeps its distance from every other, not just its own kind.
+  let bad = 0;
+  for (let i = 0; i < w.props.length; i++) {
+    for (let j = i + 1; j < w.props.length; j++) {
+      const a = w.props[i], b = w.props[j];
+      const need = Math.max(a.name.startsWith('tree') ? 60 : 18, b.name.startsWith('tree') ? 60 : 18);
+      if (Math.hypot(a.x - b.x, a.y - b.y) < Math.min(need, 18)) bad++;
+    }
+  }
+  ok(bad === 0, `no props stacked on each other (${bad} violations)`);
+
+  // Trees block, like any other obstacle.
+  const tree = trees.find((t) => !w.blocked(t.x, t.y - 70));
+  ok(tree.r > 12, `trees carry a real blocking radius (r=${tree.r})`);
+  // Walk straight down through where the trunk is. Sliding around it is fine
+  // and expected; what matters is never getting inside the radius, so track
+  // the closest approach over the whole path rather than the end point.
+  const body = { x: tree.x, y: tree.y - 70 };
+  let closest = Infinity;
+  for (let i = 0; i < 300; i++) {
+    w.move(body, 0, 1.4, 7);
+    closest = Math.min(closest, Math.hypot(body.x - tree.x, body.y - tree.y));
+  }
+  ok(closest >= tree.r,
+     `never penetrates a tree while walking through it (closest ${closest.toFixed(1)}px, r=${tree.r})`);
+  ok(body.y > tree.y, 'and still gets past it rather than jamming');
+  ok(w.blocked(tree.x, tree.y), 'a tree trunk reads as blocked ground');
 }
 
 // ---- 8. the same seed builds the same island on host and phone

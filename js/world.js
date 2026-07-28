@@ -25,16 +25,21 @@ const KIND_NAMES = ['grass', 'sand', 'dirt', 'water'];
 // Prop gameplay data lives here rather than in the art metadata, so a world
 // can be generated (and collided against) before any image has loaded.
 // world.json only supplies where each prop sits on the sheet.
+// r     blocking radius, sized to the prop's base rather than its canopy — you
+//       walk behind a tree's leaves, not through its trunk.
+// foot  pixels the sprite's bottom edge sits below the prop's ground line.
+// gap   minimum centre-to-centre distance to any other prop, so canopies read
+//       as separate trees instead of a green smear.
 const PROP_DEFS = {
-  tree_green: { r: 15, foot: 6 },
-  tree_amber: { r: 15, foot: 6 },
-  tree_red: { r: 15, foot: 6 },
-  boulder: { r: 14, foot: 4 },
-  bush: { r: 8, foot: 2 },
-  stump: { r: 6, foot: 2 },
-  rock: { r: 6, foot: 2 },
-  flower: { r: 0, foot: 2 },
-  sprout: { r: 0, foot: 2 },
+  tree_green: { r: 22, foot: 2, gap: 60 },
+  tree_amber: { r: 22, foot: 2, gap: 60 },
+  tree_red: { r: 22, foot: 2, gap: 60 },
+  boulder: { r: 18, foot: 2, gap: 48 },
+  bush: { r: 9, foot: 2, gap: 24 },
+  stump: { r: 7, foot: 2, gap: 20 },
+  rock: { r: 7, foot: 2, gap: 20 },
+  flower: { r: 0, foot: 2, gap: 18 },
+  sprout: { r: 0, foot: 2, gap: 18 },
 };
 
 let sheet = null;
@@ -156,8 +161,13 @@ export class World {
           if (test && !test(tx, ty)) continue;
           const x = tx * TILE + TILE / 2;
           const y = ty * TILE + TILE / 2;
-          if (this.props.some((p) => Math.hypot(p.x - x, p.y - y) < 26)) continue;
           const def = PROP_DEFS[name];
+          // Honour the larger of the two gaps so a bush can't tuck under a
+          // canopy, and two trees never overlap.
+          if (this.props.some((p) => {
+            const gap = Math.max(def.gap, PROP_DEFS[p.name].gap);
+            return Math.hypot(p.x - x, p.y - y) < gap;
+          })) continue;
           this.props.push({ name, x, y, r: def.r, foot: def.foot });
         }
       }
@@ -194,6 +204,44 @@ export class World {
       }
     }
     this._grid = { grid, gw, gh, CELL };
+
+    // Props are drawn per frame (so entities can sort against them), so they
+    // also need an index that includes the non-blocking decoration.
+    const RCELL = 128;
+    const rw = Math.ceil(this.w / RCELL);
+    const rh = Math.ceil(this.h / RCELL);
+    const rgrid = Array.from({ length: rw * rh }, () => []);
+    for (const p of this.props) {
+      const gx = Math.min(rw - 1, Math.floor(p.x / RCELL));
+      const gy = Math.min(rh - 1, Math.floor(p.y / RCELL));
+      rgrid[gy * rw + gx].push(p);
+    }
+    this._draw = { rgrid, rw, rh, RCELL };
+  }
+
+  /** Props whose base falls inside a rect, for the visible-camera draw pass. */
+  propsIn(x0, y0, x1, y1) {
+    const { rgrid, rw, rh, RCELL } = this._draw;
+    const gx0 = Math.max(0, Math.floor(x0 / RCELL));
+    const gx1 = Math.min(rw - 1, Math.floor(x1 / RCELL));
+    const gy0 = Math.max(0, Math.floor(y0 / RCELL));
+    const gy1 = Math.min(rh - 1, Math.floor(y1 / RCELL));
+    const out = [];
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (const p of rgrid[gy * rw + gx]) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  /** Atlas rect for a prop, or null before the art has loaded. */
+  propRect(name) {
+    return meta ? meta.props[name].rect : null;
+  }
+
+  get sheet() {
+    return sheet;
   }
 
   nearbyProps(x, y) {
@@ -334,7 +382,11 @@ export class World {
 
   // ----------------------------------------------------------------- bake
 
-  /** Draw the whole island once; cameras blit sub-rects of this. */
+  /**
+   * Bake the ground only; cameras blit sub-rects of this. Props are drawn per
+   * frame instead, so entities can depth-sort against them and walk behind a
+   * tree's canopy rather than over it.
+   */
   bake() {
     if (this.canvas) return this.canvas;
     if (!sheet) throw new Error('loadWorldArt() must resolve before baking the world');
@@ -353,12 +405,6 @@ export class World {
       }
     }
 
-    // Props back-to-front so overlapping canopies stack correctly.
-    for (const p of [...this.props].sort((a, b) => a.y - b.y)) {
-      const [sx, sy, sw, sh] = meta.props[p.name].rect;
-      c.drawImage(sheet, sx, sy, sw, sh, Math.round(p.x - sw / 2), Math.round(p.y + p.foot - sh), sw, sh);
-    }
-
     this.canvas = cv;
     return cv;
   }
@@ -371,6 +417,13 @@ export class World {
     const c = cv.getContext('2d');
     c.imageSmoothingEnabled = false;
     c.drawImage(this.bake(), 0, 0, cv.width, cv.height);
+    // Woods aren't in the ground bake any more, so dot them in — they are the
+    // main landmark for reading the island at a glance.
+    c.fillStyle = 'rgba(20,60,25,0.85)';
+    for (const p of this.props) {
+      if (p.r < 12) continue;
+      c.fillRect(p.x * scale - 1, p.y * scale - 1, 2, 2);
+    }
     return cv;
   }
 }
