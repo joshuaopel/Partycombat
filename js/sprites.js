@@ -159,7 +159,7 @@ export function enemySprite(type, frame = 0) {
 const PAL = {
   '.': null, o: '#1a1420', w: '#ffffff', m: '#d8dee9', M: '#8b95a6',
   r: '#e2453c', R: '#8f1f1c', g: '#3fa34d', y: '#ffd24a', n: '#8a5a2b',
-  p: '#a05fd0', x: '#8a8a96', X: '#5a5a66',
+  p: '#a05fd0', x: '#8a8a96', X: '#5a5a66', f: '#ff7a2a', c: '#8fe3ff',
 };
 
 const PROP_ART = {
@@ -168,7 +168,29 @@ const PROP_ART = {
   rock: ['..oooo..', '.oxxxxo.', 'oxxxxxxo', 'oxxXXxxo', 'oxxXXxxo', 'oxxxxxxo', '.oxxxxo.', '..oooo..'],
   bolt: ['..oooo..', '.opppo..', 'oppwwppo', 'oppwwppo', 'oppppppo', '.oppppo.', '..oooo..', '........'],
   spark: ['...oo...', '..oyyo..', '.oywwyo.', 'oywwwwyo', 'oywwwwyo', '.oywwyo.', '..oyyo..', '...oo...'],
+
+  // Weapon pickups. Icons rather than characters, so they read at a glance
+  // from across a 5x5-screen island.
+  master: ['...oo...', '..owmo..', '..owmo..', '..owmo..', '.oyyyyo.', '..onno..', '..onno..', '...oo...'],
+  bow: ['..oo....', '.onno...', 'onno.m..', 'ono..m..', 'ono..m..', 'onno.m..', '.onno...', '..oo....'],
+  rod: ['.....oo.', '....orro', '....orro', '...onno.', '..onno..', '.onno...', 'onno....', 'oo......'],
 };
+
+// Projectiles drawn pointing right; the renderer rotates them to travel.
+const SHOT_ART = {
+  arrow: ['........', '.....o..', '..o..mo.', 'onnnnmmo', '..o..mo.', '.....o..', '........', '........'],
+  beam: ['........', '...oo...', '..occo..', 'occwwcco', '..occo..', '...oo...', '........', '........'],
+  // A bent L rather than a straight bar — a diagonal stick reads as a stick no
+  // matter how fast it spins.
+  rang: ['ooo.....', 'onyo....', 'onyo....', 'onyo....', 'onyooooo', 'onyyyyyo', 'onnnnnno', '.oooooo.'],
+  fire: ['..oooo..', '.offyfo.', 'offywyfo', 'ofywwyfo', 'offywyfo', '.offyfo.', '..oooo..', '........'],
+};
+Object.assign(PROP_ART, SHOT_ART);
+// The boomerang's pickup icon and its in-flight sprite are the same object.
+PROP_ART.rang = SHOT_ART.rang;
+
+/** Shots that read as pointing somewhere, so the renderer should rotate them. */
+export const AIMED_SHOTS = new Set(['arrow', 'beam', 'rang']);
 
 const SWORD = [
   '..mo..', '.mmo..', '.mMo..', '.mMo..', '.mMo..', '.mMo..', '.mMo..',

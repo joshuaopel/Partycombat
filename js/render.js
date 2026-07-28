@@ -4,9 +4,12 @@
 // host sends. Both funnel through drawScene so there is exactly one copy of
 // the drawing code and the two views can't drift apart.
 
-import { heroSheet, enemyFrames, prop, drawAt, drawGrounded, drawSword } from './sprites.js';
+import { heroSheet, enemyFrames, prop, drawAt, drawGrounded, drawSword, AIMED_SHOTS } from './sprites.js';
 
 export const DIR_ANGLE = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 };
+
+// Projectile kinds with their own art; anything else falls back to the rock.
+const SHOT_SPRITES = new Set(['rock', 'bolt', 'arrow', 'beam', 'rang', 'fire']);
 
 /** A camera looking at a rect of the world, drawn into a viewport of w x h. */
 export class Camera {
@@ -115,6 +118,14 @@ function drawPlayer(ctx, p, opts) {
     ctx.fillText(p.name, p.x + 1, p.y - 15);
     ctx.fillStyle = opts.highlight === p.id ? '#ffffff' : sheet.color.t;
     ctx.fillText(p.name, p.x, p.y - 16);
+    // A held weapon is worth everyone seeing, not just its owner — it is half
+    // of knowing who should be taking point. It tags the name rather than
+    // floating over the head, where it would fight the "this is you" caret.
+    if (p.weapon && !p.downed) {
+      const cv = prop(p.weapon);
+      const half = ctx.measureText(p.name).width / 2;
+      ctx.drawImage(cv, Math.round(p.x - half - cv.width - 2), Math.round(p.y - 24));
+    }
     if (opts.highlight === p.id) {
       // A small caret so you can always find yourself in a crowd.
       ctx.fillStyle = '#ffffff';
@@ -242,8 +253,17 @@ export function drawScene(ctx, world, cam, scene, opts = {}) {
 
   for (const s of scene.shots || []) {
     if (!cam.visible(s.x, s.y)) continue;
-    const cv = prop(s.kind === 'bolt' ? 'bolt' : 'rock');
-    ctx.drawImage(cv, Math.round(s.x - cv.width / 2), Math.round(s.y - cv.height / 2));
+    const cv = prop(SHOT_SPRITES.has(s.kind) ? s.kind : 'rock');
+    if (AIMED_SHOTS.has(s.kind)) {
+      // Arrows point where they are going; the boomerang just spins.
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.ang || 0);
+      ctx.drawImage(cv, -Math.round(cv.width / 2), -Math.round(cv.height / 2));
+      ctx.restore();
+    } else {
+      ctx.drawImage(cv, Math.round(s.x - cv.width / 2), Math.round(s.y - cv.height / 2));
+    }
   }
 
   for (const p of scene.particles || []) {

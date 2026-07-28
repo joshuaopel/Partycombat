@@ -64,10 +64,45 @@ Landscape is more comfortable, but portrait works.
 - The run ends when every connected hero is down at once.
 - Clearing a wave drops hearts and pays a bonus. Consecutive kills build a
   score multiplier that resets when you take a hit.
+- **Killing an enemy pays the hero who landed the blow** — sword, arrow or
+  fireball, whoever finished it banks the points and the kill. The team total
+  goes up either way, so a scoreboard exists without the game turning into a
+  race to steal kills.
+- **Loot keeps landing** while a wave runs, out where you have to go and get
+  it: hearts to heal two hit points, rupees for points, and weapon upgrades.
+  Bosses always drop a heart and a weapon; every wave clear leaves both too.
 - Enemies escalate: Octoroks (ranged) → Moblins (lunging melee) → Keese (fast,
   erratic) → Stalfos (tanky) → Taros (teleporting casters), with an Armos
   Knight boss every fifth wave. Waves spawn in a ring around the party
   wherever they happen to be, so spreading out does not buy you peace.
+
+### Weapons
+
+You always keep your sword. A weapon pickup layers something on top of it for
+**22 seconds** rather than swapping your attack out — nobody wants to sprint
+across the island for a power-up and find it made them worse. Picking up a
+second one replaces the first, and the clock pauses while you are down, so
+bleeding out is not also a weapon tax.
+
+| | |
+|---|---|
+| **Master Sword** | Hits for two, reaches further, and every swing throws a beam that carries on through the line |
+| **Bow** | An arrow on each swing: fast, three damage, single target, and it kills an Octorok before it can spit |
+| **Boomerang** | Flies out and comes home, hitting everything in the lane both ways and shoving it hard. One in the air at a time |
+| **Fire Rod** | A slow fireball that explodes where it lands. It does not care how many of them are standing together |
+
+Everyone can see who is holding what: the weapon tags your name in the world,
+sits on your card on the TV with its countdown, and shows on your own phone.
+
+### The scoreboard
+
+The TV carries a live ranked board — score, kills, and who is in the lead —
+next to the arena, and your phone shows where you sit in the party. When the
+run ends, both show the full standings with kills and each hero's best kill
+streak, and the TV names the top hero.
+
+Ties break on kills and then on seat, so two heroes drawing level never makes
+the board flicker between them.
 
 ### Everyone on the same Wi-Fi
 
@@ -259,6 +294,7 @@ js/world.js         island generation, baking, collision, spawn points
 js/render.js        camera + the one copy of the scene drawing code
 js/scene.js         client-side snapshot decoding and interpolation
 js/enemies.js       enemy archetypes (AI) and the wave curve
+js/weapons.js       weapon upgrades and what each one does to a swing
 js/game.js          authoritative simulation, scene building, snapshots
 js/net.js           PeerJS transport, ICE configuration, join diagnostics
 js/turn.js          empty by design — why this is a same-Wi-Fi game
@@ -273,12 +309,13 @@ tests/world.html    generates an island and shows it whole and at 1:1
 
 ## Tests
 
-Open `tests/sim.html` in a browser — it runs 54 assertions against the
+Open `tests/sim.html` in a browser — it runs 86 assertions against the
 simulation (combat resolves, waves advance and escalate, downing, revival and
 bleedout, six-player seating, world collision, shoreline sliding, prop spacing
-and solidity, seed determinism, and snapshot encode/decode round-tripping) and
-prints pass/fail. Every case runs on a fixed seed so the suite is
-deterministic.
+and solidity, seed determinism, pickups and every weapon's behaviour, kill
+credit, scoreboard ordering and tie-breaking, and snapshot encode/decode
+round-tripping) and prints pass/fail. Every case runs on a fixed seed so the
+suite is deterministic.
 
 `tests/sprites.html` renders every frame of every mail colour and enemy.
 `tests/world.html` generates an island and shows it both whole and at 1:1;

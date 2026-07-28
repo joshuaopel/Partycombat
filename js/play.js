@@ -29,6 +29,9 @@ const ui = {
   team: $('p-team'),
   score: $('p-score'),
   combo: $('p-combo'),
+  rank: $('p-rank'),
+  weapon: $('p-weapon'),
+  board: $('board'),
   stickZone: $('stick-zone'),
   stick: $('stick'),
   knob: $('knob'),
@@ -174,9 +177,14 @@ function onMessage(msg) {
     case 'heal':
       toast('+HEART');
       break;
+    case 'weapon':
+      toast(`${msg.label.toUpperCase()} — ${msg.secs}s`);
+      buzz([20, 40, 20]);
+      break;
     case 'gameover':
       ui.oWave.textContent = msg.wave;
       ui.oScore.textContent = msg.score;
+      renderBoard();
       ui.overOv.classList.remove('hidden');
       buzz([100, 60, 100]);
       break;
@@ -239,9 +247,20 @@ function applyState(s) {
   ui.team.textContent = s.teamScore;
   ui.score.textContent = s.score;
   ui.combo.textContent = s.combo > 1 ? `· x${s.combo}` : '';
+  // Where you sit in the party. Meaningless on your own, so it stays hidden.
+  ui.rank.textContent = s.party > 1 && s.rank ? `· ${ordinal(s.rank)}` : '';
 
-  ui.downedOv.classList.toggle('hidden', !s.downed);
-  if (s.downed) {
+  ui.weapon.textContent = s.weapon ? `${s.weaponTag} ${s.weaponSecs}s` : '';
+  ui.weapon.classList.toggle('on', !!s.weapon);
+  ui.weapon.style.color = s.weaponColor || '';
+
+  lastBoard = s.board || lastBoard;
+
+  // Everyone is down when the run ends, so without the state check the "you're
+  // down" panel sits behind the final scoreboard and shows through it.
+  const over = s.state === 'gameover';
+  ui.downedOv.classList.toggle('hidden', !s.downed || over);
+  if (s.downed && !over) {
     if (s.out) {
       // Past the bleedout clock: no teammate can help, so stop showing a
       // meter that can't fill and say what's actually going to happen.
@@ -265,6 +284,27 @@ function applyState(s) {
   if (idle) {
     input.ax = input.ay = 0;
     input.attack = input.dash = false;
+  }
+}
+
+// Held back from the last `you` message so the end-of-run board is already
+// populated the moment the overlay appears.
+let lastBoard = [];
+
+const ordinal = (n) =>
+  n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
+
+function renderBoard() {
+  ui.board.innerHTML = '';
+  for (const r of lastBoard) {
+    const li = document.createElement('li');
+    if (me && r.slot === me.slot) li.className = 'you';
+    li.innerHTML =
+      `<span class="rk">${r.rank}</span><span class="dot"></span>` +
+      `<span class="who"></span><span class="pts">${r.score} · ${r.kills}k</span>`;
+    li.querySelector('.dot').style.background = r.color;
+    li.querySelector('.who').textContent = r.name;
+    ui.board.appendChild(li);
   }
 }
 

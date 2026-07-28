@@ -304,6 +304,82 @@ label.check {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
 }
 
+/* Live standings, opposite the minimap. Ranked rather than seated in slot
+   order — the whole point is seeing who is winning without doing arithmetic. */
+#scoreboard {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  min-width: 168px;
+  padding: 0.5rem 0.65rem 0.6rem;
+  border: 2px solid var(--edge);
+  border-radius: 6px;
+  background: rgba(10, 8, 18, 0.82);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+}
+
+#scoreboard h3 {
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 400;
+  margin-bottom: 0.35rem;
+}
+
+#scoreboard ol {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#scoreboard li {
+  display: grid;
+  grid-template-columns: 1.1rem 8px 1fr auto;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+#scoreboard li.down {
+  opacity: 0.45;
+}
+
+#scoreboard .rk {
+  color: var(--muted);
+  font-size: 0.62rem;
+  text-align: right;
+}
+
+#scoreboard li.lead .rk {
+  color: var(--gold);
+}
+
+#scoreboard .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+#scoreboard .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#scoreboard .pts {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+#scoreboard .pts small {
+  color: var(--muted);
+  font-weight: 400;
+  margin-left: 0.3rem;
+}
+
 #canvas-wrap {
   position: relative;
   flex: 1;
@@ -381,6 +457,36 @@ table.scores th {
   height: 10px;
   border-radius: 2px;
   margin-right: 0.5rem;
+}
+
+table.scores tr.first td {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.go-mvp {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.go-mvp b {
+  font-size: 1.15rem;
+}
+
+/* A held weapon on the player's card, in the weapon's own colour so it is
+   recognisable from the far side of the room. */
+.pcard .wp {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  align-self: flex-start;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  opacity: 0;
+}
+
+.pcard .wp.on {
+  opacity: 1;
 }
 
 #status {

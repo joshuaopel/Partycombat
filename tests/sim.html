@@ -270,6 +270,219 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   ok(size < 4000, `snapshot stays small (${size} bytes -> ~${perSec} KB/s per phone at 15 Hz)`);
 }
 
+// ---- 10. pickups: hearts heal, weapons arm and expire
+{
+  const g = new Game({ seed: 4242 });
+  const p = g.addPlayer('a', 'GRAB');
+  // A second hero, because this test downs the first one deliberately. Nothing
+  // here is about survival: a downed hero stops picking things up, and a solo
+  // hero going down ends the run — after which the game stops updating at all,
+  // freezing the weapon clock and making every assertion below read as a bug
+  // in the game rather than in the test.
+  const buddy = g.addPlayer('b', 'BUDDY');
+  g.start(); step(g, 3);
+  const alive = (secs, dt = 1 / 60) => {
+    for (let i = 0; i < secs / dt; i++) {
+      for (const h of [p, buddy]) {
+        h.hp = h.maxHp;
+        h.downed = false;
+        h.out = false;
+      }
+      g.update(dt);
+    }
+  };
+
+  // The heal check reads hp, so it cannot use the topping-up stepper.
+  p.hp = 2;
+  g.dropPickup('heart', p.x, p.y);
+  step(g, 0.1);
+  ok(p.hp === 4, `a heart heals two hit points (hp=${p.hp})`);
+
+  g.dropPickup('bow', p.x, p.y);
+  alive(0.1);
+  ok(p.weapon === 'bow', `walking over a bow arms it (weapon=${p.weapon})`);
+  ok(p.weaponT > 20, `and starts its clock (${p.weaponT.toFixed(1)}s)`);
+
+  // The clock pauses while you are down, so bleeding out isn't a double loss.
+  const held = p.weaponT;
+  p.downed = true;
+  step(g, 2);
+  ok(p.weaponT === held, 'the weapon clock is paused while downed');
+  p.downed = false;
+
+  alive(24);
+  ok(p.weapon === null, 'and the weapon runs out on its own');
+
+  // Picking a second one up replaces the first rather than stacking.
+  g.dropPickup('rod', p.x, p.y); alive(0.1);
+  g.dropPickup('master', p.x, p.y); alive(0.1);
+  ok(p.weapon === 'master', `a new weapon replaces the old one (weapon=${p.weapon})`);
+}
+
+// ---- 11. each weapon actually does its thing
+{
+  const { WEAPON_NAMES } = await import('../js/weapons.js');
+  ok(WEAPON_NAMES.length === 4, `four weapons to find (${WEAPON_NAMES.join(', ')})`);
+
+  // A dummy enemy parked in front of the hero, out of sword reach.
+  const rig = (weapon, dist) => {
+    const g = new Game({ seed: 606 });
+    const p = g.addPlayer('a', 'SHOOT');
+    g.start(); step(g, 3);
+    g.enemies.length = 0;
+    g.spawnQueue.length = 0;
+    p.dir = 'right';
+    g.spawnEnemy('bones', { x: p.x + dist, y: p.y });
+    const e = g.enemies[0];
+    e.def = { ...e.def, think() {} }; // hold still so the test measures the shot
+    e.hp = e.maxHp = 60;
+    if (weapon) g.giveWeapon(p, weapon);
+    return { g, p, e };
+  };
+
+  {
+    // Standing still: walking into range would be measuring the wrong thing.
+    const { g, p, e } = rig(null, 70);
+    p.input.attack = true;
+    step(g, 1.2);
+    ok(e.hp === 60, `a plain sword cannot reach 70px (hp=${e.hp})`);
+    ok(g.pshots.length === 0, 'and launches nothing');
+  }
+  {
+    const { g, p, e } = rig('bow', 70);
+    p.input.attack = true;
+    step(g, 1.2);
+    ok(e.hp < 60, `the bow hits at 70px (hp=${e.hp})`);
+  }
+  {
+    const { g, p, e } = rig('master', 70);
+    p.input.attack = true;
+    step(g, 1.2);
+    ok(e.hp < 60, `the master sword's beam hits at 70px (hp=${e.hp})`);
+  }
+  {
+    // The fireball's splash should catch a neighbour it never touched.
+    const { g, p, e } = rig('rod', 70);
+    g.spawnEnemy('bones', { x: p.x + 70, y: p.y + 20 });
+    const other = g.enemies[1];
+    other.def = { ...other.def, think() {} };
+    other.hp = other.maxHp = 60;
+    step(g, 0.5); // clear the spawn-in window
+    p.input.attack = true;
+    step(g, 1.2);
+    ok(e.hp < 60 && other.hp < 60, `the fire rod splashes both (${e.hp}, ${other.hp})`);
+  }
+  {
+    // Thrown out, then home again — and only ever one in the air.
+    const { g, p } = rig('rang', 70);
+    p.input.attack = true;
+    step(g, 0.3);
+    ok(g.pshots.length === 1, `only one boomerang at a time (${g.pshots.length})`);
+    const out0 = g.pshots[0];
+    const far = Math.hypot(out0.x - p.x, out0.y - p.y);
+    step(g, 0.35);
+    ok(g.pshots.length && g.pshots[0].mode === 'back', 'the boomerang turns around');
+    step(g, 1.4);
+    ok(!g.pshots.some((s) => s.kind === 'rang' && s.t > 2.4), 'and comes home rather than orbiting');
+    ok(far > 20, `it travelled out first (${far.toFixed(0)}px)`);
+  }
+}
+
+// ---- 12. kills credit whoever landed the blow, including at range
+{
+  const g = new Game({ seed: 707 });
+  const a = g.addPlayer('a', 'ARCHER');
+  const b = g.addPlayer('b', 'IDLE');
+  g.start(); step(g, 3);
+  g.enemies.length = 0;
+  g.spawnQueue.length = 0;
+  a.dir = 'right';
+  g.spawnEnemy('octo', { x: a.x + 60, y: a.y });
+  const e = g.enemies[0];
+  e.def = { ...e.def, think() {} };
+  g.giveWeapon(a, 'bow');
+  const before = { a: a.score, b: b.score, team: g.score };
+  a.input.attack = true;
+  step(g, 1.5);
+  ok(!g.enemies.includes(e), 'the arrow killed it');
+  ok(a.score > before.a, `the archer banked the points (${before.a} -> ${a.score})`);
+  ok(a.kills === 1, `and the kill (kills=${a.kills})`);
+  ok(b.score === before.b, 'the bystander banked nothing');
+  ok(g.score > before.team, `the team score went up too (${before.team} -> ${g.score})`);
+}
+
+// ---- 13. the scoreboard ranks, breaks ties and stays stable
+{
+  const g = new Game({ seed: 808 });
+  const a = g.addPlayer('a', 'ACE');
+  const b = g.addPlayer('b', 'BEE');
+  const c = g.addPlayer('c', 'CEE');
+  a.score = 100; a.kills = 4;
+  b.score = 250; b.kills = 9;
+  c.score = 100; c.kills = 7;
+  const board = g.standings();
+  ok(board.map((r) => r.name).join(',') === 'BEE,CEE,ACE',
+     `ranked by score, ties broken on kills (${board.map((r) => r.name).join(',')})`);
+  ok(board[0].rank === 1 && board[2].rank === 3, 'ranks are 1-based and dense');
+  // Dead level on both: the order must not flip between frames.
+  c.score = 100; c.kills = 4;
+  const once = g.standings().map((r) => r.name).join(',');
+  const twice = g.standings().map((r) => r.name).join(',');
+  ok(once === twice, `a dead tie keeps a stable order (${once})`);
+  ok(g.playerState(b).rank === 1, 'a player is told their own rank');
+  ok(g.playerState(b).board.length === 3, 'and gets the whole board');
+}
+
+// ---- 14. loose pickups keep appearing during a wave
+{
+  const g = new Game({ seed: 909 });
+  const p = g.addPlayer('a', 'WAIT');
+  g.start(); step(g, 3);
+  g.pickups.length = 0;
+  const seen = new Set();
+  for (let i = 0; i < 60 * 90; i++) {
+    p.hp = p.maxHp; p.downed = false; // survive long enough to observe
+    g.update(1 / 60);
+    for (const k of g.pickups) seen.add(k.kind);
+    g.pickups.length = 0; // take them off the field so they can't be collected
+  }
+  ok(seen.size > 0, `pickups spawned during the wave (${[...seen].join(', ')})`);
+  ok([...seen].some((k) => k !== 'heart' && k !== 'rupee'),
+     `including weapons (${[...seen].join(', ')})`);
+}
+
+// ---- 15. the new pickup and shot kinds survive the wire
+{
+  const { SceneBuffer } = await import('../js/scene.js');
+  const { PICKUP_NAMES, SHOT_NAMES } = await import('../js/game.js');
+  const g = new Game({ seed: 1111 });
+  const p = g.addPlayer('a', 'WIRE');
+  g.start(); step(g, 3);
+  for (const k of PICKUP_NAMES) g.dropPickup(k, 500 + PICKUP_NAMES.indexOf(k) * 40, 500);
+  g.giveWeapon(p, 'rod');
+  // Face somewhere the fireball has room to fly, so this tests the wire rather
+  // than whatever the hero happens to be standing against.
+  const AWAY = { right: [30, 0], left: [-30, 0], up: [0, -30], down: [0, 30] };
+  p.dir = Object.keys(AWAY).find((d) => !g.world.blocked(p.x + AWAY[d][0], p.y + AWAY[d][1])) || 'right';
+  p.input.attack = true;
+  g.update(1 / 60);
+
+  const snap = g.snapshot();
+  const buf = new SceneBuffer();
+  buf.setRoster([{ slot: p.slot, id: 'a', name: 'WIRE' }]);
+  const t0 = performance.now();
+  buf.push(snap, t0);
+  buf.push(snap, t0 + 66);
+  const sc = buf.sample(t0 + 66);
+  const kinds = new Set(sc.pickups.map((k) => k.kind));
+  ok(PICKUP_NAMES.every((k) => kinds.has(k)),
+     `every pickup kind round-trips (${[...kinds].join(', ')})`);
+  ok(sc.shots.some((s) => s.kind === 'fire'), 'a fireball round-trips as itself');
+  ok(sc.players[0].weapon === 'rod', `the held weapon round-trips (${sc.players[0].weapon})`);
+  ok(SHOT_NAMES.length === 6 && SHOT_NAMES[0] === 'rock',
+     'the shot table kept rock at index 0 for old snapshots');
+}
+
 document.getElementById('log').textContent = out.join('\n');
 window.__results = out;
 window.__done = true;

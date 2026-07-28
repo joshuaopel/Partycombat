@@ -6,7 +6,8 @@
 // they are spawned locally from the snapshot's one-shot `fx` events, which
 // keeps them smooth and keeps the wire small.
 
-import { DIR_NAMES, ENEMY_NAMES } from './game.js';
+import { DIR_NAMES, ENEMY_NAMES, SHOT_NAMES, PICKUP_NAMES } from './game.js';
+import { WEAPON_NAMES } from './weapons.js';
 
 const INTERP_DELAY = 110; // ms behind the newest snapshot
 const BUFFER = 5;
@@ -23,14 +24,19 @@ function decode(snap) {
       downed: !!(a[5] & 1), attacking: !!(a[5] & 2), connected: !(a[5] & 4),
       invuln: a[6] / 60, flash: a[7] / 60, atkAngle: a[8] / 100,
       meter: a[9] / 100, reviving: !!a[10],
+      weapon: a[11] ? WEAPON_NAMES[a[11] - 1] : null,
     })),
     enemies: (snap.e || []).map((a) => ({
       id: a[0], type: ENEMY_NAMES[a[1]], x: a[2], y: a[3], face: a[4] ? 'l' : 'r',
       frame: a[5], flash: a[6] / 60, alpha: a[7] / 100, radius: a[8],
       scale: a[9] / 10, bossHp: a[10], winding: !!a[11], bob: a[12] / 20,
     })),
-    shots: (snap.s || []).map((a) => ({ kind: a[0] ? 'bolt' : 'rock', x: a[1], y: a[2] })),
-    pickups: (snap.k || []).map((a) => ({ kind: a[0] ? 'rupee' : 'heart', x: a[1], y: a[2], bob: a[3] / 10 })),
+    shots: (snap.s || []).map((a) => ({
+      kind: SHOT_NAMES[a[0]] || 'rock', x: a[1], y: a[2], ang: (a[3] || 0) / 100,
+    })),
+    pickups: (snap.k || []).map((a) => ({
+      kind: PICKUP_NAMES[a[0]] || 'heart', x: a[1], y: a[2], bob: a[3] / 10,
+    })),
   };
 }
 
@@ -65,6 +71,8 @@ export class SceneBuffer {
       { n: 12, color: '#e8e4d8', speed: 80 },  // 1 kill
       { n: 8, color: '#e8e4d8', speed: 50 },   // 2 spawn
       { n: 26, color: '#ffd24a', speed: 110 }, // 3 boss kill
+      { n: 10, color: '#ffd24a', speed: 60 },  // 4 pickup grabbed
+      { n: 14, color: '#ff7a2a', speed: 95 },  // 5 fireball burst
     ][kind] || { n: 6, color: '#ffffff', speed: 70 };
     for (let i = 0; i < spec.n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -76,6 +84,7 @@ export class SceneBuffer {
       });
     }
     if (kind === 3) this.rings.push({ x, y, r: 6, max: 80, life: 0.45, t: 0.45 });
+    if (kind === 5) this.rings.push({ x, y, r: 6, max: 28, life: 0.35, t: 0.35 });
   }
 
   update(dt) {

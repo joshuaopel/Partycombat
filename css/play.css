@@ -159,6 +159,69 @@ form {
   color: var(--gold);
 }
 
+#padtop #p-rank {
+  color: var(--ink);
+}
+
+/* The weapon you are holding and how long you have it for. Hidden entirely
+   with the plain sword, so the bar only ever appears as good news. */
+#padtop .wpn {
+  display: none;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+#padtop .wpn.on {
+  display: inline-block;
+}
+
+/* End-of-run standings on the phone. */
+#board {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0.4rem 0 0.9rem;
+  min-width: 12rem;
+}
+
+#board li {
+  display: grid;
+  grid-template-columns: 1.2rem 9px 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+}
+
+#board li.you {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+#board .rk {
+  color: var(--muted);
+  font-size: 0.66rem;
+  text-align: right;
+}
+
+#board .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+#board .who {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
 #padmain {
   flex: 1;
   position: relative;

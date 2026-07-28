@@ -31,6 +31,8 @@ const ui = {
   goWave: $('go-wave'),
   goScore: $('go-score'),
   goRows: $('go-rows'),
+  goMvp: $('go-mvp'),
+  sbRows: $('sb-rows'),
   again: $('again'),
   status: $('status'),
   mmCanvas: $('minimap'),
@@ -254,6 +256,7 @@ function handleGameEvent(ev) {
     case 'downed':
     case 'revived':
     case 'heal':
+    case 'weapon':
       toPlayer(ev.id, ev);
       break;
     case 'wave':
@@ -377,7 +380,8 @@ function buildTopbar() {
     el.style.borderTopColor = p.color.t;
     el.innerHTML = `
       <div class="row1"><span class="nm"></span><span class="sc"></span></div>
-      <div class="hearts"></div>`;
+      <div class="hearts"></div>
+      <span class="wp"></span>`;
     el.querySelector('.nm').textContent = p.name;
     el.querySelector('.nm').style.color = p.color.t;
     ui.topbar.appendChild(el);
@@ -405,6 +409,41 @@ function syncTopbar(hud) {
       hearts.children[i].className =
         'heart' + (filled >= 2 ? ' full' : filled === 1 ? ' half' : '');
     }
+    const wp = el.querySelector('.wp');
+    // Seconds left, not a bar: you need to know whether to spend it now.
+    wp.textContent = p.weapon ? `${p.weaponTag} ${p.weaponSecs}s` : '';
+    wp.className = 'wp' + (p.weapon ? ' on' : '');
+    wp.style.color = p.weaponColor || 'transparent';
+  }
+  syncScoreboard(hud.standings);
+}
+
+// Rows are kept and reordered rather than rebuilt, so a lead change slides
+// instead of flickering the whole panel every tenth of a second.
+const sbRows = new Map();
+
+function syncScoreboard(standings) {
+  for (const p of standings) {
+    let li = sbRows.get(p.id);
+    if (!li) {
+      li = document.createElement('li');
+      li.innerHTML = '<span class="rk"></span><span class="dot"></span>' +
+        '<span class="who"></span><span class="pts"></span>';
+      li.querySelector('.dot').style.background = p.color;
+      li.querySelector('.who').textContent = p.name;
+      sbRows.set(p.id, li);
+    }
+    li.className = (p.downed ? 'down' : '') + (p.rank === 1 && p.score > 0 ? ' lead' : '');
+    li.querySelector('.rk').textContent = p.rank;
+    li.querySelector('.pts').innerHTML =
+      `${p.score}<small>${p.kills}k</small>`;
+    ui.sbRows.appendChild(li); // appending an existing node moves it
+  }
+  for (const [id, li] of sbRows) {
+    if (!standings.some((p) => p.id === id)) {
+      li.remove();
+      sbRows.delete(id);
+    }
   }
 }
 
@@ -412,14 +451,22 @@ function showGameOver(ev) {
   ui.goWave.textContent = `Wave ${ev.wave}`;
   ui.goScore.textContent = ev.score;
   ui.goRows.innerHTML = '';
-  const rows = [...game.players.values()].sort((a, b) => b.score - a.score);
+  const rows = game.standings();
   for (const p of rows) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td><span class="swatch" style="background:${p.color.t}"></span>${escapeHtml(
-      p.name
-    )}</td><td>${p.score}</td><td>${p.kills}</td>`;
+    if (p.rank === 1) tr.className = 'first';
+    tr.innerHTML =
+      `<td>${p.rank}</td>` +
+      `<td><span class="swatch" style="background:${p.color}"></span>${escapeHtml(p.name)}</td>` +
+      `<td>${p.score}</td><td>${p.kills}</td><td>${p.bestCombo > 1 ? `x${p.bestCombo}` : '—'}</td>`;
     ui.goRows.appendChild(tr);
   }
+  // Naming the winner out loud is most of why anyone looks at a scoreboard.
+  const top = rows[0];
+  ui.goMvp.innerHTML =
+    top && top.score > 0
+      ? `Top hero: <b style="color:${top.color}">${escapeHtml(top.name)}</b> — ${top.score} points, ${top.kills} kills`
+      : '';
   ui.gameover.classList.remove('hidden');
 }
 

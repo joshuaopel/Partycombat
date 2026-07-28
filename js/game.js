@@ -11,7 +11,16 @@ export const DIR_NAMES = ['down', 'up', 'left', 'right'];
 export const DIR_INDEX = { down: 0, up: 1, left: 2, right: 3 };
 export const ENEMY_NAMES = ['octo', 'grunt', 'bat', 'bones', 'mage', 'knight'];
 const ENEMY_INDEX = Object.fromEntries(ENEMY_NAMES.map((n, i) => [n, i]));
+// Enemy and player projectiles share one wire list; the renderer picks the
+// sprite off the name.
+export const SHOT_NAMES = ['rock', 'bolt', 'arrow', 'beam', 'rang', 'fire'];
+const SHOT_INDEX = Object.fromEntries(SHOT_NAMES.map((n, i) => [n, i]));
+// Pickups likewise. Index 0 and 1 stay put so the ordering reads as
+// "consumables, then weapons".
+export const PICKUP_NAMES = ['heart', 'rupee', 'master', 'bow', 'rang', 'rod'];
+const PICKUP_INDEX = Object.fromEntries(PICKUP_NAMES.map((n, i) => [n, i]));
 import { ENEMY_TYPES, waveSpec } from './enemies.js';
+import { WEAPON_TYPES, WEAPON_NAMES, randomWeapon, meleeStats } from './weapons.js';
 
 const PLAYER_SPEED = 82;
 const PLAYER_MAX_HP = 6; // two hit points per heart
@@ -27,6 +36,10 @@ const BLEEDOUT = 22;
 const REVIVE_TIME = 2.4;
 const REVIVE_RANGE = 24;
 const INTERMISSION = 5;
+// Loose pickups keep appearing while a wave is running, so there is always a
+// reason to leave your corner of the island.
+const DROP_EVERY = [11, 17];
+const DROP_HEART_CHANCE = 0.45;
 
 export class Game {
   constructor({ onEvent, seed } = {}) {
@@ -41,7 +54,9 @@ export class Game {
   reset() {
     this.enemies = [];
     this.shots = [];
+    this.pshots = []; // player projectiles; they hurt enemies, not heroes
     this.pickups = [];
+    this.dropT = DROP_EVERY[0];
     this.particles = [];
     this.floaters = [];
     this.waves = [];
@@ -111,8 +126,11 @@ export class Game {
       score: 0,
       kills: 0,
       combo: 0,
+      bestCombo: 0,
       comboT: 0,
       flash: 0,
+      weapon: null, // key into WEAPON_TYPES, or null for the plain sword
+      weaponT: 0, // seconds left on it
     };
   }
 
@@ -267,6 +285,56 @@ export class Game {
     return this._ctx;
   }
 
+  // -------------------------------------------------------- weapon hooks
+
+  /** What a weapon's `fire` gets to work with. Mirrors enemyCtx in spirit. */
+  weaponCtx() {
+    if (this._wctx) return this._wctx;
+    this._wctx = {
+      shot: (p, spec) => {
+        // Projectiles leave along the facing the swing committed to, so what
+        // you aimed the sword at is what you shot at.
+        //
+        // They start on the hero rather than a few pixels ahead: standing with
+        // your back to a tree would otherwise spawn the shot *inside* the
+        // trunk, and it would die on its first terrain check without ever
+        // leaving your hands.
+        const a = DIR_ANGLE[p.dir];
+        this.pshots.push({
+          kind: spec.kind,
+          x: p.x,
+          y: p.y,
+          vx: Math.cos(a) * spec.speed,
+          vy: Math.sin(a) * spec.speed,
+          dmg: spec.dmg,
+          life: spec.life,
+          radius: spec.radius ?? 4,
+          pierce: !!spec.pierce,
+          splash: spec.splash || 0,
+          knock: spec.knock ?? 1,
+          owner: p,
+          hits: new Set(), // each enemy takes one hit per pass
+          ang: a,
+          spin: 0,
+          mode: spec.kind === 'rang' ? 'out' : 'fly',
+          t: 0,
+        });
+      },
+      has: (p, kind) => this.pshots.some((s) => !s.dead && s.owner === p && s.kind === kind),
+    };
+    return this._wctx;
+  }
+
+  /** Hand a weapon over, replacing whatever was in play and resetting its clock. */
+  giveWeapon(p, kind) {
+    const w = WEAPON_TYPES[kind];
+    if (!w) return;
+    p.weapon = kind;
+    p.weaponT = w.duration;
+    this.floater(p.x, p.y - 14, `+${w.tag}`, w.color);
+    this.onEvent({ t: 'weapon', id: p.id, weapon: kind, label: w.label, secs: w.duration });
+  }
+
   nearestPlayer(x, y) {
     let best = null;
     let bd = Infinity;
@@ -299,7 +367,9 @@ export class Game {
     for (const p of this.players.values()) this.updatePlayer(p, dt);
     this.updateEnemies(dt);
     this.updateShots(dt);
+    this.updatePlayerShots(dt);
     this.updatePickups(dt);
+    this.maybeDrop(dt);
     this.checkTeamState(dt);
 
     if (this.state === 'intermission') {
@@ -332,12 +402,11 @@ export class Game {
       this.onEvent({ t: 'revived', id: p.id });
     }
     this.banner = { text: `WAVE ${this.wave} CLEARED`, sub: `+${bonus} bonus`, t: 2.6 };
-    // Guarantee some sustain between waves, scaled to party size.
+    // Guarantee some sustain between waves, scaled to party size, plus one
+    // weapon so the next wave always opens with something worth racing for.
     const hearts = Math.max(1, Math.ceil(this.players.size / 2));
-    for (let i = 0; i < hearts; i++) {
-      const spot = this.world.spawnNear(Math.random, this.livePlayers(), 30, 120);
-      this.pickups.push({ kind: 'heart', x: spot.x, y: spot.y, life: 30, bob: Math.random() * 6 });
-    }
+    for (let i = 0; i < hearts; i++) this.dropNear('heart', 30, 120);
+    this.dropNear(randomWeapon(), 40, 150);
     this.onEvent({ t: 'waveclear', wave: this.wave, bonus });
   }
 
@@ -382,6 +451,18 @@ export class Game {
     p.atkCool = Math.max(0, p.atkCool - dt);
     p.dashCool = Math.max(0, p.dashCool - dt);
 
+    // The weapon clock only runs while you are on your feet. Bleeding out for
+    // twenty seconds and losing the thing you just earned is two punishments
+    // for one mistake.
+    if (p.weapon) {
+      p.weaponT -= dt;
+      if (p.weaponT <= 0) {
+        this.floater(p.x, p.y - 14, `${WEAPON_TYPES[p.weapon].tag} SPENT`, '#9b93b5');
+        p.weapon = null;
+        p.weaponT = 0;
+      }
+    }
+
     const inp = p.input;
     let ax = inp.ax;
     let ay = inp.ay;
@@ -421,6 +502,8 @@ export class Game {
       p.atkT = ATTACK_ACTIVE;
       p.atkCool = ATTACK_COOLDOWN;
       p.atkHits = new Set();
+      const w = p.weapon && WEAPON_TYPES[p.weapon];
+      if (w && w.fire) w.fire(p, this.weaponCtx());
     }
     if (p.atkT > 0) {
       p.atkT -= dt;
@@ -433,45 +516,53 @@ export class Game {
   swingAngle(p) {
     // Sweep from behind to in front across the active window.
     const k = 1 - Math.max(0, p.atkT) / ATTACK_ACTIVE;
-    return DIR_ANGLE[p.dir] + (-ATTACK_ARC + 2 * ATTACK_ARC * k);
+    const arc = meleeStats(p.weapon, ATTACK_RANGE, ATTACK_ARC).arc;
+    return DIR_ANGLE[p.dir] + (-arc + 2 * arc * k);
   }
 
   resolveSwing(p) {
     const base = DIR_ANGLE[p.dir];
+    const m = meleeStats(p.weapon, ATTACK_RANGE, ATTACK_ARC);
     for (const e of this.enemies) {
       if (e.spawnT > 0) continue;
       if (p.atkHits.has(e)) continue;
       const dx = e.x - p.x;
       const dy = e.y - p.y;
       const d = Math.hypot(dx, dy);
-      if (d > ATTACK_RANGE + e.radius) continue;
+      if (d > m.range + e.radius) continue;
       let diff = Math.atan2(dy, dx) - base;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      if (Math.abs(diff) > ATTACK_ARC) continue;
+      if (Math.abs(diff) > m.arc) continue;
       p.atkHits.add(e);
-      this.hurtEnemy(e, 1 + Math.floor(p.combo / 8), p);
+      this.hurtEnemy(e, 1 + m.dmg + Math.floor(p.combo / 8), p);
     }
     // Sword also swats enemy projectiles out of the air.
     for (const s of this.shots) {
       if (s.dead) continue;
       const d = Math.hypot(s.x - p.x, s.y - p.y);
-      if (d > ATTACK_RANGE + 4) continue;
+      if (d > m.range + 4) continue;
       let diff = Math.atan2(s.y - p.y, s.x - p.x) - base;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      if (Math.abs(diff) > ATTACK_ARC) continue;
+      if (Math.abs(diff) > m.arc) continue;
       s.dead = true;
       for (let i = 0; i < 5; i++) this.puff(s.x, s.y, '#ffd24a');
     }
   }
 
-  hurtEnemy(e, dmg, byPlayer) {
+  /**
+   * `from` is where the blow came from, which is the sword for a swing but the
+   * projectile for anything thrown — knocking an enemy away from a distant
+   * archer rather than away from the arrow looks wrong and plays worse.
+   */
+  hurtEnemy(e, dmg, byPlayer, { from = null, knock = 1 } = {}) {
     e.hp -= dmg;
     e.flash = 0.12;
-    if (byPlayer) {
-      const a = Math.atan2(e.y - byPlayer.y, e.x - byPlayer.x);
-      const k = 120 * (e.def.knockback ?? 1);
+    const src = from || byPlayer;
+    if (src) {
+      const a = Math.atan2(e.y - src.y, e.x - src.x);
+      const k = 120 * (e.def.knockback ?? 1) * knock;
       e.kx += Math.cos(a) * k;
       e.ky += Math.sin(a) * k;
     }
@@ -485,10 +576,13 @@ export class Game {
     const mult = byPlayer ? 1 + Math.min(2, byPlayer.combo * 0.05) : 1;
     const pts = Math.round(e.def.score * mult);
     this.score += pts;
+    // Whoever landed the killing blow banks the points, whether that was their
+    // sword, their arrow or their fireball.
     if (byPlayer) {
       byPlayer.score += pts;
       byPlayer.kills += 1;
       byPlayer.combo += 1;
+      byPlayer.bestCombo = Math.max(byPlayer.bestCombo, byPlayer.combo);
       byPlayer.comboT = 3;
     }
     this.floater(e.x, e.y - 8, `+${pts}`, byPlayer ? byPlayer.color.t : '#ffd24a');
@@ -497,13 +591,49 @@ export class Game {
     if (e.def.boss) this.shakeAmt = Math.max(this.shakeAmt, 10);
     this.emit(e.def.boss ? 3 : 1, e.x, e.y);
 
-    // Drops: rupees often, hearts rarely (bosses always).
-    const r = Math.random();
-    if (e.def.boss || r < 0.06) {
-      this.pickups.push({ kind: 'heart', x: e.x, y: e.y, life: 22, bob: 0 });
-    } else if (r < 0.34) {
-      this.pickups.push({ kind: 'rupee', x: e.x, y: e.y, life: 18, bob: 0 });
+    // Drops: rupees often, hearts rarely, weapons rarer still. A boss is worth
+    // crossing the island for, so it always leaves both.
+    if (e.def.boss) {
+      this.dropPickup('heart', e.x, e.y);
+      this.dropPickup(randomWeapon(), e.x + 14, e.y);
+      return;
     }
+    const r = Math.random();
+    if (r < 0.03) this.dropPickup(randomWeapon(), e.x, e.y);
+    else if (r < 0.09) this.dropPickup('heart', e.x, e.y);
+    else if (r < 0.37) this.dropPickup('rupee', e.x, e.y);
+  }
+
+  /**
+   * Loose drops keep landing away from the party while a wave runs, so the
+   * fight keeps moving instead of settling into one corner of the island.
+   */
+  maybeDrop(dt) {
+    if (this.state !== 'fighting') return;
+    this.dropT -= dt;
+    if (this.dropT > 0) return;
+    this.dropT = DROP_EVERY[0] + Math.random() * (DROP_EVERY[1] - DROP_EVERY[0]);
+    if (!this.livePlayers().length) return;
+    this.dropNear(Math.random() < DROP_HEART_CHANCE ? 'heart' : randomWeapon(), 90, 260);
+  }
+
+  dropNear(kind, min, max) {
+    const spot = this.world.spawnNear(Math.random, this.livePlayers(), min, max);
+    this.dropPickup(kind, spot.x, spot.y);
+  }
+
+  dropPickup(kind, x, y) {
+    // Weapons sit around longer than hearts — one may be half an island away
+    // from whoever needs it, and expiring before anyone can reach it just
+    // reads as the game teasing you.
+    const consumable = kind === 'heart' || kind === 'rupee';
+    this.pickups.push({
+      kind,
+      x,
+      y,
+      life: consumable ? 24 : 36,
+      bob: Math.random() * 6,
+    });
   }
 
   hurtPlayer(p, dmg, fromX, fromY) {
@@ -583,6 +713,93 @@ export class Game {
     this.shots = this.shots.filter((s) => !s.dead);
   }
 
+  /**
+   * Player projectiles. Kept apart from `this.shots` — enemy fire hits heroes,
+   * these hit enemies, and one array trying to do both invites the bug where
+   * your own arrow downs you.
+   */
+  updatePlayerShots(dt) {
+    for (const s of this.pshots) {
+      if (s.dead) continue;
+      s.t += dt;
+      s.life -= dt;
+
+      if (s.kind === 'rang') {
+        s.spin += dt * 16;
+        if (s.mode === 'out' && s.t > 0.42) {
+          s.mode = 'back';
+          // Fresh on the way home, so a line of enemies gets swept twice.
+          s.hits.clear();
+        }
+        if (s.mode === 'back') {
+          const a = Math.atan2(s.owner.y - s.y, s.owner.x - s.x);
+          s.vx = Math.cos(a) * 175;
+          s.vy = Math.sin(a) * 175;
+          if (Math.hypot(s.owner.x - s.x, s.owner.y - s.y) < 10) {
+            s.dead = true;
+            continue;
+          }
+        }
+      }
+
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.ang = Math.atan2(s.vy, s.vx);
+
+      if (s.life <= 0) {
+        this.expireShot(s);
+        continue;
+      }
+      // A boomerang is thrown over the scenery; everything else stops at it.
+      if (s.kind !== 'rang' && this.world.blocked(s.x, s.y)) {
+        this.expireShot(s);
+        continue;
+      }
+
+      for (const e of this.enemies) {
+        if (e.dead || e.spawnT > 0 || s.hits.has(e)) continue;
+        if (Math.hypot(e.x - s.x, e.y - s.y) > e.radius + s.radius) continue;
+        s.hits.add(e);
+        if (s.splash) {
+          this.explode(s);
+          break;
+        }
+        this.hurtEnemy(e, s.dmg, s.owner, { from: s, knock: s.knock });
+        // Beams and the boomerang carry on through; an arrow is spent.
+        if (!s.pierce && s.kind !== 'rang') {
+          s.dead = true;
+          for (let i = 0; i < 4; i++) this.puff(s.x, s.y, '#e8e4d8');
+          break;
+        }
+      }
+    }
+    this.pshots = this.pshots.filter((s) => !s.dead);
+  }
+
+  /** A shot that ran out of road: splash weapons still go off where they land. */
+  expireShot(s) {
+    if (s.splash && !s.dead) {
+      this.explode(s);
+      return;
+    }
+    s.dead = true;
+    for (let i = 0; i < 4; i++) this.puff(s.x, s.y, '#b3ae9c');
+  }
+
+  explode(s) {
+    s.dead = true;
+    this.particles.push({ kind: 'wave', x: s.x, y: s.y, r: 6, max: s.splash, life: 0.35, t: 0.35 });
+    for (let i = 0; i < 12; i++) this.puff(s.x, s.y, '#ff7a2a');
+    this.emit(5, s.x, s.y);
+    this.shakeAmt = Math.max(this.shakeAmt, 3);
+    for (const e of this.enemies) {
+      if (e.dead || e.spawnT > 0) continue;
+      if (Math.hypot(e.x - s.x, e.y - s.y) < s.splash + e.radius) {
+        this.hurtEnemy(e, s.dmg, s.owner, { from: s, knock: 1.4 });
+      }
+    }
+  }
+
   updatePickups(dt) {
     for (const k of this.pickups) {
       k.life -= dt;
@@ -595,15 +812,18 @@ export class Game {
         if (p.downed) continue;
         if (Math.hypot(p.x - k.x, p.y - k.y) < 12) {
           k.dead = true;
+          this.emit(4, k.x, k.y);
           if (k.kind === 'heart') {
             p.hp = Math.min(p.maxHp, p.hp + 2);
             this.floater(p.x, p.y - 14, '+HEART', '#ff7a7a');
             this.onEvent({ t: 'heal', id: p.id, hp: p.hp });
-          } else {
+          } else if (k.kind === 'rupee') {
             const pts = 25;
             this.score += pts;
             p.score += pts;
             this.floater(p.x, p.y - 14, `+${pts}`, '#7dfc9a');
+          } else {
+            this.giveWeapon(p, k.kind);
           }
           break;
         }
@@ -692,7 +912,10 @@ export class Game {
     return {
       players: this.activePlayers().map((p) => this.playerView(p)),
       enemies: this.enemies.map((e) => this.enemyView(e)),
-      shots: this.shots.map((s) => ({ kind: s.kind, x: s.x, y: s.y })),
+      shots: [
+        ...this.shots.map((s) => ({ kind: s.kind, x: s.x, y: s.y, ang: 0 })),
+        ...this.pshots.map((s) => ({ kind: s.kind, x: s.x, y: s.y, ang: s.kind === 'rang' ? s.spin : s.ang })),
+      ],
       pickups: this.pickups
         // Blink out as they are about to expire.
         .filter((k) => !(k.life < 5 && Math.floor(k.life * 8) % 2 === 0))
@@ -726,6 +949,7 @@ export class Game {
       reviveProgress: p.downed ? p.reviveProgress / REVIVE_TIME : 0,
       bleed: p.downed ? Math.max(0, p.bleed / BLEEDOUT) : 1,
       connected: p.connected,
+      weapon: p.weapon,
     };
   }
 
@@ -770,6 +994,9 @@ export class Game {
         p.atkT > 0 ? r(this.swingAngle(p) * 100) : 0,
         r((p.downed ? (p.reviveProgress > 0 ? p.reviveProgress / REVIVE_TIME : p.bleed / BLEEDOUT) : 1) * 100),
         p.downed && p.reviveProgress > 0 ? 1 : 0,
+        // Everyone's weapon travels, so a power-up is visible to the whole
+        // party rather than only to whoever picked it up.
+        p.weapon ? WEAPON_NAMES.indexOf(p.weapon) + 1 : 0,
       ]),
       e: this.enemies.map((e) => [
         e.id, ENEMY_INDEX[e.type], r(e.x), r(e.y), e.face === 'l' ? 1 : 0,
@@ -780,8 +1007,14 @@ export class Game {
         e.mode === 'wind' || e.mode === 'slam' ? 1 : 0,
         r((e.bob % (Math.PI * 2)) * 20),
       ]),
-      s: this.shots.map((s) => [s.kind === 'bolt' ? 1 : 0, r(s.x), r(s.y)]),
-      k: this.pickups.map((k) => [k.kind === 'heart' ? 0 : 1, r(k.x), r(k.y), r(k.bob * 10) % 63]),
+      s: [
+        ...this.shots.map((s) => [SHOT_INDEX[s.kind] ?? 0, r(s.x), r(s.y), 0]),
+        ...this.pshots.map((s) => [
+          SHOT_INDEX[s.kind] ?? 0, r(s.x), r(s.y),
+          r((s.kind === 'rang' ? s.spin : s.ang) * 100),
+        ]),
+      ],
+      k: this.pickups.map((k) => [PICKUP_INDEX[k.kind] ?? 0, r(k.x), r(k.y), r(k.bob * 10) % 63]),
       fx: this.fx,
       fl: this.fxFloaters,
     };
@@ -792,6 +1025,41 @@ export class Game {
 
   // ----------------------------------------------------------- HUD state
 
+  scoreRow(p) {
+    const w = p.weapon ? WEAPON_TYPES[p.weapon] : null;
+    return {
+      id: p.id,
+      name: p.name,
+      slot: p.slot,
+      color: p.color.t,
+      hp: p.hp,
+      maxHp: p.maxHp,
+      downed: p.downed,
+      connected: p.connected,
+      score: p.score,
+      kills: p.kills,
+      combo: p.combo,
+      bestCombo: p.bestCombo,
+      weapon: p.weapon,
+      weaponTag: w ? w.tag : '',
+      weaponColor: w ? w.color : '',
+      weaponLeft: w ? Math.max(0, p.weaponT / w.duration) : 0,
+      weaponSecs: w ? Math.ceil(Math.max(0, p.weaponT)) : 0,
+    };
+  }
+
+  /**
+   * The scoreboard, best first. Ties break on kills and then on slot, so the
+   * order is stable frame to frame — a board that reshuffles two names every
+   * time they draw level is unreadable.
+   */
+  standings() {
+    return this.activePlayers()
+      .map((p) => this.scoreRow(p))
+      .sort((a, b) => b.score - a.score || b.kills - a.kills || a.slot - b.slot)
+      .map((row, i) => ({ ...row, rank: i + 1 }));
+  }
+
   hudState() {
     return {
       state: this.state,
@@ -801,23 +1069,14 @@ export class Game {
       intermission: this.state === 'intermission' ? Math.ceil(this.stateT) : 0,
       players: this.activePlayers()
         .sort((a, b) => a.slot - b.slot)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          slot: p.slot,
-          color: p.color.t,
-          hp: p.hp,
-          maxHp: p.maxHp,
-          downed: p.downed,
-          connected: p.connected,
-          score: p.score,
-          kills: p.kills,
-          combo: p.combo,
-        })),
+        .map((p) => this.scoreRow(p)),
+      standings: this.standings(),
     };
   }
 
   playerState(p) {
+    const board = this.standings();
+    const w = p.weapon ? WEAPON_TYPES[p.weapon] : null;
     return {
       t: 'you',
       hp: p.hp,
@@ -829,6 +1088,19 @@ export class Game {
       score: p.score,
       kills: p.kills,
       combo: p.combo,
+      rank: board.findIndex((r) => r.id === p.id) + 1,
+      party: board.length,
+      weapon: p.weapon,
+      weaponTag: w ? w.tag : '',
+      weaponColor: w ? w.color : '',
+      weaponLeft: w ? Math.max(0, p.weaponT / w.duration) : 0,
+      weaponSecs: w ? Math.ceil(Math.max(0, p.weaponT)) : 0,
+      // Everyone's line, so the phone can show the whole board without a
+      // second message type.
+      board: board.map((r) => ({
+        slot: r.slot, name: r.name, score: r.score, kills: r.kills, color: r.color,
+        downed: r.downed, rank: r.rank,
+      })),
       wave: Math.max(1, this.wave),
       teamScore: this.score,
       state: this.state,

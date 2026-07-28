@@ -57,6 +57,10 @@
         <div id="canvas-wrap">
           <canvas id="game" width="640" height="384"></canvas>
           <canvas id="minimap" title="Island overview"></canvas>
+          <div id="scoreboard">
+            <h3>Scoreboard</h3>
+            <ol id="sb-rows"></ol>
+          </div>
         </div>
 
         <div id="gameover" class="hidden">
@@ -65,12 +69,15 @@
             <div class="go-stats">
               Reached <b id="go-wave">0</b> &nbsp;·&nbsp; Team score <b id="go-score">0</b>
             </div>
+            <div class="go-mvp" id="go-mvp"></div>
             <table class="scores">
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Hero</th>
                   <th>Score</th>
                   <th>Kills</th>
+                  <th>Best streak</th>
                 </tr>
               </thead>
               <tbody id="go-rows"></tbody>
