@@ -24,14 +24,23 @@
 //   host.html?turnhost=relay.example.com&turnuser=USER&turnpass=SECRET
 // The host propagates those into its QR code, so phones inherit them.
 
+// Metered: dashboard.metered.ca -> your app -> "TURN Server Credentials".
+// Copy the username and password it shows and uncomment this block. The host
+// name is the same for every Metered account; only the credentials differ.
+//
+// These are visible to anyone who loads the page — that is unavoidable for
+// browser WebRTC, and is why the free tier is metered rather than secret. If
+// the quota ever gets burned by someone else, rotate the password in the
+// dashboard.
 export const TURN_SERVERS = [
   // {
   //   urls: [
-  //     'turn:relay.example.com:443?transport=tcp',
-  //     'turns:relay.example.com:443?transport=tcp',
+  //     'turn:global.relay.metered.ca:80',
+  //     'turn:global.relay.metered.ca:443',
+  //     'turns:global.relay.metered.ca:443?transport=tcp',
   //   ],
-  //   username: 'your-username',
-  //   credential: 'your-password',
+  //   username: 'PASTE_USERNAME',
+  //   credential: 'PASTE_PASSWORD',
   // },
 ];
 

@@ -1,6 +1,7 @@
 // Host screen: owns the peer, the lobby, the simulation and the big display.
 
 import { startHost, send, MAX_PLAYERS } from './net.js';
+import { hasTurn } from './turn.js';
 import { Game } from './game.js';
 import { heroSheet, loadSprites, PLAYER_COLORS } from './sprites.js';
 import { loadWorldArt } from './world.js';
@@ -76,7 +77,9 @@ Promise.all([loadSprites(), loadWorldArt()]).then(
       setStatus('reconnecting…');
       peer.reconnect();
     });
-    setStatus('room open');
+    // Say whether a relay is loaded: without one, players on other networks
+    // cannot connect at all, and that is worth knowing before the party.
+    setStatus(hasTurn() ? 'room open · TURN relay configured' : 'room open · no TURN relay (same Wi-Fi only)');
   } catch (err) {
     ui.code.textContent = 'Offline';
     ui.qr.remove();

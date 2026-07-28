@@ -81,12 +81,21 @@ requests with an HTTP error, which is silent unless you go looking. Working
 options all need a free account — [Metered](https://dashboard.metered.ca)
 (~50 GB/month free), [Cloudflare](https://dash.cloudflare.com), or Twilio.
 
-Put the credentials in [`js/turn.js`](js/turn.js) and commit; the host screen
-and every phone pick them up. To try one without committing:
+With Metered, open the dashboard, pick your app, and copy the username and
+password under **TURN Server Credentials**. Try them first without committing
+anything by putting them on the host URL:
 
 ```
-host.html?turnhost=relay.example.com&turnuser=USER&turnpass=SECRET
+host.html?turnhost=global.relay.metered.ca&turnuser=USER&turnpass=SECRET
 ```
+
+The host's status line reads *"TURN relay configured"* when they have been
+picked up, and once a phone joins you can confirm the relay is genuinely
+carrying traffic: a failed join lists its ICE candidate types, and `relay`
+appearing there means the TURN server answered.
+
+Once it works, paste the same credentials into [`js/turn.js`](js/turn.js) and
+commit so nobody needs the long URL.
 
 The host forwards those into its QR code, so phones inherit them automatically.
 Prefer entries on port 443 with `transport=tcp`, which survive networks that
