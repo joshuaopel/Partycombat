@@ -1,8 +1,13 @@
 name: Deploy to GitHub Pages
 
+# Manual only. The simplest way to publish this site is Settings -> Pages ->
+# Source -> "Deploy from a branch" (main / root), which needs no Actions
+# permissions at all. This workflow is the alternative for anyone who wants
+# Actions-based deploys; it needs Settings -> Actions -> General -> Workflow
+# permissions set to "Read and write", otherwise configure-pages fails with
+# "Resource not accessible by integration". Left off the push trigger so it
+# can't redden every commit on repos that haven't granted that.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

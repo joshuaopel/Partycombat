@@ -74,15 +74,17 @@ mid-run — they drop straight into the current wave.
 
 ## Deploying to GitHub Pages
 
-Push to `main` and the workflow at `.github/workflows/pages.yml` publishes the
-repository root. There is no build step, and `.nojekyll` keeps Pages from
-mangling the directory layout.
+**Settings → Pages → Source → Deploy from a branch**, then pick `main` and
+`/ (root)`. That is the whole setup: there is no build step, and `.nojekyll`
+stops Pages from mangling the directory layout. The site appears at
+`https://<user>.github.io/<repo>/` after a minute or so.
 
-The workflow passes `enablement: true` to `actions/configure-pages`, so it
-switches Pages on by itself the first time it runs — you do not need to visit
-Settings first. Without that flag the first deploy fails with *"Get Pages site
-failed... Not Found"* until someone sets **Settings → Pages → Source** to
-**GitHub Actions** by hand.
+`.github/workflows/pages.yml` is an Actions-based alternative, left on
+`workflow_dispatch` so it only runs when you ask for it. It needs
+**Settings → Actions → General → Workflow permissions** set to *Read and
+write*; without that, `configure-pages` fails with *"Resource not accessible
+by integration"* because the job's token cannot touch Pages. Branch deploys
+need none of that, which is why they are the default advice here.
 
 Both pages must be served over **HTTPS** for WebRTC to work — Pages already
 is. Opening the files directly with `file://` will not work; ES modules need
