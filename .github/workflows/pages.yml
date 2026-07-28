@@ -23,7 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # enablement turns Pages on via the API if it isn't already, so a fresh
+      # clone of this repo deploys without anyone visiting Settings first.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       # No build step — the repository root is the site.
       - uses: actions/upload-pages-artifact@v3
         with:
