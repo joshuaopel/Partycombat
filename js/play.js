@@ -18,6 +18,7 @@ const ui = {
   namein: $('namein'),
   joinbtn: $('joinbtn'),
   joinerr: $('joinerr'),
+  joindiag: $('joindiag'),
   waiterr: $('waiterr'),
   youare: $('youare'),
   waitmsg: $('waitmsg'),
@@ -95,6 +96,7 @@ ui.form.addEventListener('submit', async (e) => {
   ui.joinbtn.disabled = true;
   ui.joinbtn.textContent = 'Connecting…';
   ui.joinerr.textContent = '';
+  ui.joindiag.textContent = '';
 
   try {
     const res = await joinRoom(code);
@@ -103,6 +105,9 @@ ui.form.addEventListener('submit', async (e) => {
     send(conn, { t: 'join', name });
   } catch (err) {
     ui.joinerr.textContent = err.message || String(err);
+    // Show what ICE actually managed, so a failure is diagnosable from the
+    // phone itself instead of needing a debugger attached.
+    ui.joindiag.textContent = err.diagnostics ? err.diagnostics.summary : '';
     ui.joinbtn.disabled = false;
     ui.joinbtn.textContent = 'Join the fight';
   }

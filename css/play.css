@@ -58,6 +58,13 @@ form {
   text-align: left;
 }
 
+.diag {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 #hero-preview {
   width: 96px;
   height: auto;

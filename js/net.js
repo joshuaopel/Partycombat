@@ -160,6 +160,35 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
 
     const conn = peer.connect(peerIdFor(code), { reliable: true, serialization: 'json' });
 
+    // Watch ICE so a failure can say *which* part of the link broke rather
+    // than just "could not connect". Candidate types tell us a lot:
+    //   host  — same-LAN route was offered at all
+    //   srflx — STUN worked, so our public address is known
+    //   relay — the TURN server answered and can carry traffic
+    // No relay candidate means the TURN server is unreachable or its
+    // credentials are dead, which is the difference between "your network is
+    // strict" and "the fallback everyone depends on is broken".
+    const seen = new Set();
+    let iceState = 'new';
+    setTimeout(() => {
+      const pc = conn.peerConnection;
+      if (!pc) return;
+      pc.addEventListener('icecandidate', (e) => {
+        if (e.candidate && e.candidate.type) seen.add(e.candidate.type);
+      });
+      pc.addEventListener('iceconnectionstatechange', () => {
+        iceState = pc.iceConnectionState;
+      });
+    }, 0);
+    const diagnostics = () => ({
+      candidates: [...seen],
+      ice: iceState,
+      relay: seen.has('relay'),
+      summary:
+        `ICE ${iceState}; candidates: ${[...seen].join(', ') || 'none'}` +
+        (seen.has('relay') ? '' : '; no TURN relay available'),
+    });
+
     const onError = (err) => {
       if (err && err.type === 'peer-unavailable') {
         peer.destroy();
@@ -181,11 +210,19 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
       // is a network problem (strict NAT, mobile data, guest Wi-Fi with client
       // isolation), not a wrong code, and saying "no room found" here sends
       // people off debugging the wrong thing.
+      const d = diagnostics();
       peer.destroy();
-      done(reject, new Error(
-        `Found room ${code}, but could not open a direct connection to the host. ` +
-        `Put both devices on the same Wi-Fi network and try again.`
-      ));
+      const hint = d.relay
+        ? 'Both devices reached a relay, so this is likely a firewall blocking the media path.'
+        : seen.size === 0
+          ? 'No network candidates were gathered at all — this browser may be blocking WebRTC.'
+          : 'No relay was available, so a direct route was required and none worked. ' +
+            'Putting both devices on the same Wi-Fi almost always fixes this.';
+      const err = new Error(
+        `Found room ${code}, but could not open a direct connection to the host. ${hint}`
+      );
+      err.diagnostics = d;
+      done(reject, err);
     }, timeoutMs);
   });
 }
