@@ -75,11 +75,17 @@ required** — with both players on 5G there is no direct route to find and the
 join fails every time. This is a property of how mobile networks work, not
 something the game can code around.
 
-There is no dependable zero-signup public relay. This project used to point at
-`openrelay.metered.ca`; it has since been retired and now answers STUN
-requests with an HTTP error, which is silent unless you go looking. Working
-options all need a free account — [Metered](https://dashboard.metered.ca)
-(~50 GB/month free), [Cloudflare](https://dash.cloudflare.com), or Twilio.
+There is no dependable zero-signup public relay. Free public ones get retired
+or saturated without notice, and a relay that silently does nothing is worse
+than none at all: the failure is indistinguishable from an ordinary network
+problem. Dependable options all need a free account —
+[Metered](https://dashboard.metered.ca) (~50 GB/month free),
+[Cloudflare](https://dash.cloudflare.com), or Twilio.
+
+A relay is configured in [`js/turn.js`](js/turn.js). Whether it is actually
+carrying traffic can only be confirmed from a real device: a failed join lists
+its ICE candidate types, and `relay` appearing there means the TURN server
+answered.
 
 With Metered, open the dashboard, pick your app, and copy the username and
 password under **TURN Server Credentials**. Try them first without committing

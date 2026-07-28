@@ -8,9 +8,12 @@
 // means neither side can accept an incoming connection and no amount of STUN
 // will find a path. Without a relay the join fails every time.
 //
-// There is no reliable zero-signup public TURN server. The one this project
-// used to point at (openrelay.metered.ca) has been retired: it now answers
-// STUN requests with an HTTP error. Every working option needs a free account:
+// There is no reliable zero-signup public TURN server. This project briefly
+// pointed at openrelay.metered.ca, a free public relay, but removed it: free
+// public relays get retired or saturated without notice, and a relay that
+// silently does nothing is worse than none at all, because the failure looks
+// identical to a network problem. Every dependable option needs a free
+// account:
 //
 //   Metered     https://dashboard.metered.ca  — free tier, ~50 GB/month
 //   Cloudflare  https://dash.cloudflare.com   — Realtime/Calls TURN
@@ -33,15 +36,18 @@
 // the quota ever gets burned by someone else, rotate the password in the
 // dashboard.
 export const TURN_SERVERS = [
-  // {
-  //   urls: [
-  //     'turn:global.relay.metered.ca:80',
-  //     'turn:global.relay.metered.ca:443',
-  //     'turns:global.relay.metered.ca:443?transport=tcp',
-  //   ],
-  //   username: 'PASTE_USERNAME',
-  //   credential: 'PASTE_PASSWORD',
-  // },
+  {
+    urls: [
+      // Plain UDP first — lowest latency when the network allows it.
+      'turn:global.relay.metered.ca:80',
+      'turn:global.relay.metered.ca:443',
+      // TCP and TLS fallbacks, which get through networks that block UDP.
+      'turn:global.relay.metered.ca:443?transport=tcp',
+      'turns:global.relay.metered.ca:443?transport=tcp',
+    ],
+    username: '815403bac45242ce7fa05cd1',
+    credential: 'nKaPTH32LkeQ5HT/',
+  },
 ];
 
 /** Runtime override from the URL, so a relay can be tried without a commit. */
