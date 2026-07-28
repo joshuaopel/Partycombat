@@ -77,9 +77,9 @@ Promise.all([loadSprites(), loadWorldArt()]).then(
       setStatus('reconnecting…');
       peer.reconnect();
     });
-    // Say whether a relay is loaded: without one, players on other networks
-    // cannot connect at all, and that is worth knowing before the party.
-    setStatus(hasTurn() ? 'room open · TURN relay configured' : 'room open · no TURN relay (same Wi-Fi only)');
+    // Same Wi-Fi is the requirement, so say it on the screen everyone is
+    // already looking at while they type the code.
+    setStatus(hasTurn() ? 'room open · relay configured' : 'room open · everyone on the same Wi-Fi');
   } catch (err) {
     ui.code.textContent = 'Offline';
     ui.qr.remove();

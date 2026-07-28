@@ -65,6 +65,19 @@ form {
   word-break: break-word;
 }
 
+/* Said before the join is attempted, because it is the cause of nearly every
+   failure and reads as blame once the attempt has already failed. */
+.wifi-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.wifi-note b {
+  color: var(--ink);
+}
+
 #hero-preview {
   width: 96px;
   height: auto;

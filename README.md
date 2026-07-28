@@ -40,6 +40,10 @@ regenerates a byte-identical island from it.
 
 ## Playing
 
+Put every device — the big screen and every phone — on the **same Wi-Fi**. The
+browsers connect to each other directly over the LAN, so mobile data will not
+work. See [below](#everyone-on-the-same-wi-fi) for why.
+
 1. Open the site's `host.html` on the big screen and wait for the room code.
 2. Everyone opens `play.html` on their phone, enters the code and a name.
 3. Host presses **Start the onslaught**.
@@ -65,61 +69,59 @@ Landscape is more comfortable, but portrait works.
   Knight boss every fifth wave. Waves spawn in a ring around the party
   wherever they happen to be, so spreading out does not buy you peace.
 
-### Playing across different networks
+### Everyone on the same Wi-Fi
 
-On one shared Wi-Fi this needs no setup: the browsers find each other directly.
+**This is a same-Wi-Fi game.** The host screen and every phone join the same
+wireless network, and the browsers open a direct link over the LAN. There is no
+setup beyond that — no accounts, no relay, no configuration.
 
-Across networks it does. Phones on mobile data sit behind carrier-grade NAT,
-where neither side can accept an incoming connection, so **a TURN relay is
-required** — with both players on 5G there is no direct route to find and the
-join fails every time. This is a property of how mobile networks work, not
-something the game can code around.
+Mobile data will not work, and neither will a mix of one device on Wi-Fi and
+another on 5G. Phones on mobile data sit behind carrier-grade NAT, where
+neither side can accept an incoming connection, so there is no direct route to
+find. Bridging that gap needs a TURN relay that bounces every byte of gameplay
+traffic through a rented server — an account, credentials baked into a public
+page, a bandwidth quota, and a fresh failure mode that looks exactly like an
+ordinary network problem. For a game where everyone is in the same room anyway,
+requiring one Wi-Fi is the better trade. [`js/turn.js`](js/turn.js) is
+deliberately empty.
 
-There is no dependable zero-signup public relay. Free public ones get retired
-or saturated without notice, and a relay that silently does nothing is worse
-than none at all: the failure is indistinguishable from an ordinary network
-problem. Dependable options all need a free account —
-[Metered](https://dashboard.metered.ca) (~50 GB/month free),
-[Cloudflare](https://dash.cloudflare.com), or Twilio.
+Guest networks are the one same-Wi-Fi case that can still fail: many of them
+enable *client isolation*, which blocks devices on the network from talking to
+each other at all. If a join fails on shared Wi-Fi, that is usually why.
 
-A relay is configured in [`js/turn.js`](js/turn.js). Whether it is actually
-carrying traffic can only be confirmed from a real device: a failed join lists
-its ICE candidate types, and `relay` appearing there means the TURN server
-answered.
+<details>
+<summary>Escape hatch: playing across networks anyway</summary>
 
-With Metered, open the dashboard, pick your app, and copy the username and
-password under **TURN Server Credentials**. Try them first without committing
-anything by putting them on the host URL:
+If you really do want to play across networks, pass a TURN relay's details on
+the host URL — the host forwards them into its QR code, so phones inherit them:
 
 ```
 host.html?turnhost=global.relay.metered.ca&turnuser=USER&turnpass=SECRET
 ```
 
-The host's status line reads *"TURN relay configured"* when they have been
-picked up, and once a phone joins you can confirm the relay is genuinely
-carrying traffic: a failed join lists its ICE candidate types, and `relay`
-appearing there means the TURN server answered.
+[Metered](https://dashboard.metered.ca) (~50 GB/month free),
+[Cloudflare](https://dash.cloudflare.com) and Twilio all have free tiers;
+Metered's credentials are under **TURN Server Credentials** in the dashboard.
+The host's status line reads *"relay configured"* once they are picked up, and
+a failed join lists its ICE candidate types — `relay` appearing there means the
+TURN server actually answered.
 
-Once it works, paste the same credentials into [`js/turn.js`](js/turn.js) and
-commit so nobody needs the long URL.
+Credentials on a URL are visible to anyone who scans the QR. That is
+unavoidable for browser WebRTC, and is part of why this is not the default.
 
-The host forwards those into its QR code, so phones inherit them automatically.
-Prefer entries on port 443 with `transport=tcp`, which survive networks that
-block UDP.
+</details>
 
 ### If a phone can't join
 
 The code on the host screen is reserved fresh **every time the host page
 loads**, so a reloaded host invalidates codes people are still holding. That
-case now says so by name: *"No room with code ABCD"*.
+case says so by name: *"No room with code ABCD"*.
 
-A different message — *"Found room ABCD, but could not open a direct
-connection"* — means the code was right and the matchmaking server found the
-host, but the browsers could not open a peer-to-peer link. That is a network
-problem, not a wrong code. It happens on guest Wi-Fi with client isolation, or
-with one device on mobile data and the other on Wi-Fi. A public TURN relay is
-configured as a fallback, but the reliable fix is putting every device on the
-same Wi-Fi network.
+A different message — *"Found room ABCD, but could not reach the host"* — means
+the code was right and the matchmaking server found the host, but the two
+browsers could not open a link. That is a network problem, not a wrong code:
+someone is on mobile data, on a different Wi-Fi, or on a guest network with
+client isolation. Put every device on one Wi-Fi.
 
 ### If someone drops
 
@@ -259,7 +261,7 @@ js/scene.js         client-side snapshot decoding and interpolation
 js/enemies.js       enemy archetypes (AI) and the wave curve
 js/game.js          authoritative simulation, scene building, snapshots
 js/net.js           PeerJS transport, ICE configuration, join diagnostics
-js/turn.js          TURN relay credentials (needed only across networks)
+js/turn.js          empty by design — why this is a same-Wi-Fi game
 js/host.js          host wiring: lobby, director camera, minimap, main loop
 js/play.js          phone wiring: world view, touch stick, buttons, HUD
 tools/build_atlas.py  slices character frames out of the reference sheets

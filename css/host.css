@@ -92,6 +92,19 @@ body {
   color: var(--gold);
 }
 
+/* Same-Wi-Fi is a hard requirement, so it sits next to the code people are
+   already reading rather than buried in a hint at the bottom. */
+.wifi-note {
+  color: var(--muted);
+  font-size: 0.75rem;
+  max-width: 34ch;
+  line-height: 1.5;
+}
+
+.wifi-note b {
+  color: var(--ink);
+}
+
 /* ------------------------------------------------------------ lobby roster */
 
 .roster-panel h2 {

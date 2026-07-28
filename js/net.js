@@ -15,10 +15,15 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
  * PeerServer with ?host=…&port=…&path=…&secure=0 on either page. Both the
  * host screen and every controller must use the same settings.
  */
-// STUN discovers a peer's public address, which is enough on one shared
-// Wi-Fi. It is not enough across networks: behind carrier-grade NAT — where
-// every phone on mobile data sits — neither side can accept an incoming
-// connection, and only a relay can carry the traffic. See js/turn.js.
+// Everyone plays on one shared Wi-Fi, where the browsers exchange LAN
+// addresses and talk to each other directly. STUN is kept because some
+// networks hand out addresses the browser will not offer as plain host
+// candidates, and it costs one round trip during setup.
+//
+// No TURN relay is configured, by design — see js/turn.js. Across networks,
+// and especially on mobile data, carrier-grade NAT means neither side can
+// accept an incoming connection and only a relay could carry the traffic.
+// Same Wi-Fi is the requirement instead.
 const STUN_SERVERS = { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] };
 
 function iceServers() {
@@ -157,12 +162,12 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
 
     // Watch ICE so a failure can say *which* part of the link broke rather
     // than just "could not connect". Candidate types tell us a lot:
-    //   host  — same-LAN route was offered at all
+    //   host  — a same-LAN route was offered at all
     //   srflx — STUN worked, so our public address is known
-    //   relay — the TURN server answered and can carry traffic
-    // No relay candidate means the TURN server is unreachable or its
-    // credentials are dead, which is the difference between "your network is
-    // strict" and "the fallback everyone depends on is broken".
+    //   relay — a TURN relay was configured on the URL and answered
+    // Since this is a same-Wi-Fi game, a failure with host candidates present
+    // usually means the two devices are on different networks, or on a network
+    // that isolates its clients from each other.
     const seen = new Set();
     let iceState = 'new';
     setTimeout(() => {
@@ -179,9 +184,7 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
       candidates: [...seen],
       ice: iceState,
       relay: seen.has('relay'),
-      summary:
-        `ICE ${iceState}; candidates: ${[...seen].join(', ') || 'none'}` +
-        (seen.has('relay') ? '' : '; no TURN relay available'),
+      summary: `ICE ${iceState}; candidates: ${[...seen].join(', ') || 'none'}`,
     });
 
     const onError = (err) => {
@@ -201,23 +204,24 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
 
     const to = setTimeout(() => {
       // No peer-unavailable came back, so the broker did find the host and
-      // relayed our offer — the direct peer-to-peer link is what failed. That
-      // is a network problem (strict NAT, mobile data, guest Wi-Fi with client
-      // isolation), not a wrong code, and saying "no room found" here sends
-      // people off debugging the wrong thing.
+      // relayed our offer — the direct peer-to-peer link is what failed. The
+      // code was right; the two devices simply could not reach each other, and
+      // saying "no room found" here sends people off debugging the wrong
+      // thing. On a same-Wi-Fi game the answer is nearly always the same one.
       const d = diagnostics();
       peer.destroy();
-      const hint = d.relay
-        ? 'Both devices reached a relay, so this is likely a firewall blocking the media path.'
-        : seen.size === 0
+      const hint =
+        seen.size === 0
           ? 'No network candidates were gathered at all — this browser may be blocking WebRTC.'
-          : hasTurn()
-            ? 'A relay is configured but never answered — check the TURN credentials in js/turn.js.'
-            : 'No TURN relay is configured, so a direct route was required and none worked. ' +
-              'Put every device on the same Wi-Fi, or add a relay (see js/turn.js) to play ' +
-              'across different networks or on mobile data.';
+          : d.relay
+            ? 'The relay on the URL answered but the link still failed — a firewall is blocking the media path.'
+            : hasTurn()
+              ? 'The relay on the URL never answered — check the turnhost/turnuser/turnpass values.'
+              : 'Partycombat needs every device on the same Wi-Fi. Check that this phone is on the ' +
+                'same network as the host screen, and not on mobile data. Guest networks that ' +
+                'isolate clients from each other will not work either.';
       const err = new Error(
-        `Found room ${code}, but could not open a direct connection to the host. ${hint}`
+        `Found room ${code}, but could not reach the host. ${hint}`
       );
       err.diagnostics = d;
       done(reject, err);
