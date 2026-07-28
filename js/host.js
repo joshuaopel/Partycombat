@@ -88,8 +88,9 @@ Promise.all([loadSprites(), loadWorldArt()]).then(
 function showJoinTarget(code) {
   const url = new URL('play.html', location.href);
   const bare = url.href.replace(/^https?:\/\//, '');
-  // Carry any custom PeerServer settings through to the phones.
-  for (const k of ['host', 'port', 'path', 'secure']) {
+  // Carry any custom PeerServer and TURN settings through to the phones —
+  // every device has to agree on both or they cannot meet.
+  for (const k of ['host', 'port', 'path', 'secure', 'turnhost', 'turnuser', 'turnpass']) {
     const v = new URLSearchParams(location.search).get(k);
     if (v !== null) url.searchParams.set(k, v);
   }

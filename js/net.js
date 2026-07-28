@@ -2,6 +2,8 @@
 // code, so phones can dial in with four letters and no signalling server of
 // our own. The host is authoritative: phones only ever send input.
 
+import { TURN_SERVERS, turnFromUrl, hasTurn } from './turn.js';
+
 export const MAX_PLAYERS = 6;
 const ID_PREFIX = 'pcbt-v1-';
 // Ambiguous glyphs removed so codes are readable off a TV.
@@ -13,26 +15,19 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
  * PeerServer with ?host=…&port=…&path=…&secure=0 on either page. Both the
  * host screen and every controller must use the same settings.
  */
-// PeerJS defaults to STUN only, which is enough when everyone is on the same
-// Wi-Fi but not across strict NATs — a phone on mobile data and a host on
-// Wi-Fi frequently cannot reach each other at all. The relay is a free public
-// one and is only used as a last resort, after direct candidates fail.
-const ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turns:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
+// STUN discovers a peer's public address, which is enough on one shared
+// Wi-Fi. It is not enough across networks: behind carrier-grade NAT — where
+// every phone on mobile data sits — neither side can accept an incoming
+// connection, and only a relay can carry the traffic. See js/turn.js.
+const STUN_SERVERS = { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] };
+
+function iceServers() {
+  return [STUN_SERVERS, ...TURN_SERVERS, ...turnFromUrl()];
+}
 
 export function peerOptions() {
   const q = new URLSearchParams(location.search);
-  const opts = { debug: 1, config: { iceServers: ICE_SERVERS } };
+  const opts = { debug: 1, config: { iceServers: iceServers() } };
   if (q.get('host')) {
     opts.host = q.get('host');
     if (q.get('port')) opts.port = Number(q.get('port'));
@@ -216,8 +211,11 @@ export async function joinRoom(code, { timeoutMs = 20000 } = {}) {
         ? 'Both devices reached a relay, so this is likely a firewall blocking the media path.'
         : seen.size === 0
           ? 'No network candidates were gathered at all — this browser may be blocking WebRTC.'
-          : 'No relay was available, so a direct route was required and none worked. ' +
-            'Putting both devices on the same Wi-Fi almost always fixes this.';
+          : hasTurn()
+            ? 'A relay is configured but never answered — check the TURN credentials in js/turn.js.'
+            : 'No TURN relay is configured, so a direct route was required and none worked. ' +
+              'Put every device on the same Wi-Fi, or add a relay (see js/turn.js) to play ' +
+              'across different networks or on mobile data.';
       const err = new Error(
         `Found room ${code}, but could not open a direct connection to the host. ${hint}`
       );

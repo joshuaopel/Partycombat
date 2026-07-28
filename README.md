@@ -65,6 +65,33 @@ Landscape is more comfortable, but portrait works.
   Knight boss every fifth wave. Waves spawn in a ring around the party
   wherever they happen to be, so spreading out does not buy you peace.
 
+### Playing across different networks
+
+On one shared Wi-Fi this needs no setup: the browsers find each other directly.
+
+Across networks it does. Phones on mobile data sit behind carrier-grade NAT,
+where neither side can accept an incoming connection, so **a TURN relay is
+required** — with both players on 5G there is no direct route to find and the
+join fails every time. This is a property of how mobile networks work, not
+something the game can code around.
+
+There is no dependable zero-signup public relay. This project used to point at
+`openrelay.metered.ca`; it has since been retired and now answers STUN
+requests with an HTTP error, which is silent unless you go looking. Working
+options all need a free account — [Metered](https://dashboard.metered.ca)
+(~50 GB/month free), [Cloudflare](https://dash.cloudflare.com), or Twilio.
+
+Put the credentials in [`js/turn.js`](js/turn.js) and commit; the host screen
+and every phone pick them up. To try one without committing:
+
+```
+host.html?turnhost=relay.example.com&turnuser=USER&turnpass=SECRET
+```
+
+The host forwards those into its QR code, so phones inherit them automatically.
+Prefer entries on port 443 with `transport=tcp`, which survive networks that
+block UDP.
+
 ### If a phone can't join
 
 The code on the host screen is reserved fresh **every time the host page
@@ -216,7 +243,8 @@ js/render.js        camera + the one copy of the scene drawing code
 js/scene.js         client-side snapshot decoding and interpolation
 js/enemies.js       enemy archetypes (AI) and the wave curve
 js/game.js          authoritative simulation, scene building, snapshots
-js/net.js           PeerJS transport
+js/net.js           PeerJS transport, ICE configuration, join diagnostics
+js/turn.js          TURN relay credentials (needed only across networks)
 js/host.js          host wiring: lobby, director camera, minimap, main loop
 js/play.js          phone wiring: world view, touch stick, buttons, HUD
 tools/build_atlas.py  slices character frames out of the reference sheets
