@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Partycombat — Host</title>
+    <link rel="stylesheet" href="css/common.css" />
+    <link rel="stylesheet" href="css/host.css" />
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- ----------------------------------------------------------- lobby -->
+      <section id="lobby">
+        <div class="card join-card">
+          <h2>Join at</h2>
+          <div class="join-url" id="joinurl">&nbsp;</div>
+          <div id="qr"></div>
+          <h2>Room code</h2>
+          <div id="code" class="pending">Connecting…</div>
+          <div class="error" id="lobbyerr"></div>
+        </div>
+
+        <div class="card roster-panel">
+          <h2>Heroes <span id="count">(0/6)</span></h2>
+          <div id="slots"></div>
+          <div class="start-row">
+            <button id="start" class="primary" disabled>Start the onslaught</button>
+            <label class="check">
+              <input type="checkbox" id="localplay" />
+              Also play on this screen (WASD / arrows, J or Space to slash, K or Shift to dash)
+            </label>
+          </div>
+          <p class="hint">
+            Waves get harder without end. Every fifth wave sends a boss. Downed
+            heroes can be revived by a teammate standing over them.
+          </p>
+        </div>
+      </section>
+
+      <!-- ------------------------------------------------------------ game -->
+      <section id="stage" class="hidden">
+        <div id="topbar"></div>
+        <div class="statline">
+          <span>Wave <b id="s-wave">1</b></span>
+          <span>Remaining <b id="s-left">0</b></span>
+          <span>Score <b id="s-score">0</b></span>
+          <span id="s-inter"></span>
+          <span class="spacer"></span>
+          <span class="code-mini">Room <b id="s-code"></b></span>
+        </div>
+        <div id="canvas-wrap">
+          <canvas id="game" width="480" height="288"></canvas>
+        </div>
+
+        <div id="gameover" class="hidden">
+          <div class="go-inner">
+            <h2>The arena falls</h2>
+            <div class="go-stats">
+              Reached <b id="go-wave">0</b> &nbsp;·&nbsp; Team score <b id="go-score">0</b>
+            </div>
+            <table class="scores">
+              <thead>
+                <tr>
+                  <th>Hero</th>
+                  <th>Score</th>
+                  <th>Kills</th>
+                </tr>
+              </thead>
+              <tbody id="go-rows"></tbody>
+            </table>
+            <button id="again" class="primary">Run it back</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="status"></div>
+    <script type="module" src="js/host.js"></script>
+  </body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0d0b14" />
+    <title>Partycombat — Controller</title>
+    <link rel="stylesheet" href="css/common.css" />
+    <link rel="stylesheet" href="css/play.css" />
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  </head>
+  <body>
+    <div id="screens">
+      <!-- ------------------------------------------------------------ join -->
+      <section id="join" class="screen centered">
+        <h1 class="logo-sm">Partycombat</h1>
+        <form id="joinform">
+          <div>
+            <div class="fieldlabel">Room code</div>
+            <input
+              id="codein"
+              maxlength="4"
+              autocomplete="off"
+              autocapitalize="characters"
+              autocorrect="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="ABCD"
+              required
+            />
+          </div>
+          <div>
+            <div class="fieldlabel">Your name</div>
+            <input
+              id="namein"
+              maxlength="10"
+              autocomplete="off"
+              autocapitalize="characters"
+              placeholder="HERO"
+              required
+            />
+          </div>
+          <button type="submit" class="primary" id="joinbtn">Join the fight</button>
+          <div class="error" id="joinerr"></div>
+        </form>
+      </section>
+
+      <!-- ---------------------------------------------------------- lobby -->
+      <section id="wait" class="screen centered hidden">
+        <canvas id="hero-preview" width="16" height="16" class="pixel"></canvas>
+        <div class="youare" id="youare">—</div>
+        <div class="waitmsg" id="waitmsg">Waiting for the host to start the onslaught…</div>
+        <div class="error" id="waiterr"></div>
+      </section>
+
+      <!-- ----------------------------------------------------------- play -->
+      <section id="pad" class="screen hidden">
+        <div id="padtop">
+          <span class="nm" id="p-name">—</span>
+          <span class="hearts" id="p-hearts"></span>
+          <span class="spacer"></span>
+          <span class="stat">
+            Wave <b id="p-wave">1</b> · Team <b id="p-team">0</b><br />
+            You <b id="p-score">0</b> <span id="p-combo"></span>
+          </span>
+        </div>
+
+        <div id="padmain">
+          <div id="stick-zone">
+            <div id="stick"><div id="knob"></div></div>
+            <div id="stick-home"><div></div></div>
+          </div>
+          <div class="stickhint">DRAG ANYWHERE TO MOVE</div>
+
+          <div id="buttons">
+            <div class="abtn" id="btn-attack">SLASH<div class="cool" id="cool-attack"></div></div>
+            <div class="abtn small" id="btn-dash">DASH<div class="cool" id="cool-dash"></div></div>
+          </div>
+
+          <div id="toast"></div>
+
+          <div id="downed-ov" class="overlay hidden">
+            <div>
+              <h2>You're down</h2>
+              <p class="waitmsg" id="downed-msg">A teammate has to stand over you to bring you back.</p>
+              <div class="meter"><i id="revive-bar"></i></div>
+            </div>
+          </div>
+
+          <div id="wait-ov" class="overlay hidden">
+            <div>
+              <h2 class="logo-sm">Hold tight</h2>
+              <p class="waitmsg" id="waitov-msg">Waiting for the next run…</p>
+            </div>
+          </div>
+
+          <div id="over-ov" class="overlay hidden">
+            <div>
+              <h2>Arena lost</h2>
+              <p class="waitmsg">
+                Reached wave <b id="o-wave">0</b> with <b id="o-score">0</b> team score.<br />
+                Waiting for the host to run it back…
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script type="module" src="js/play.js"></script>
+  </body>
+</html>

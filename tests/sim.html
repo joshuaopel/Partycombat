@@ -1,0 +1,151 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>sim test</title></head><body>
+<pre id="log"></pre>
+<script type="module">
+import { Game } from '../js/game.js';
+import { waveSpec } from '../js/enemies.js';
+
+const out = [];
+const ok = (c, m) => out.push((c ? 'PASS ' : 'FAIL ') + m);
+const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.update(dt); };
+
+// ---- 1. a lone player can clear wave 1 by mashing attack while chasing
+{
+  const g = new Game();
+  const p = g.addPlayer('a', 'TEST');
+  ok(!!p && p.slot === 0, 'addPlayer seats slot 0');
+  g.start();
+  step(g, 3); // burn the intro intermission
+  ok(g.state === 'fighting' && g.wave === 1, `wave 1 started (state=${g.state} wave=${g.wave})`);
+
+  let guard = 0;
+  const before = g.score;
+  while (g.wave === 1 && g.state === 'fighting' && guard++ < 60 * 60) {
+    // Steer at the nearest enemy and swing constantly.
+    const e = g.enemies[0];
+    if (e) {
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      g.setInput('a', { ax: dx / d, ay: dy / d, attack: true });
+    }
+    p.hp = p.maxHp; // immortal so the test measures offence, not survival
+    p.downed = false;
+    g.update(1 / 60);
+  }
+  ok(g.score > before, `kills scored points (score=${g.score})`);
+  ok(g.wave === 1 && g.state === 'intermission', `wave 1 cleared into intermission (state=${g.state})`);
+}
+
+// ---- 2. enemies damage and eventually down a passive player
+{
+  const g = new Game();
+  const p = g.addPlayer('a', 'PASSIVE');
+  g.start();
+  step(g, 3);
+  const startHp = p.hp;
+  step(g, 25);
+  ok(p.hp < startHp || p.downed, `passive player took damage (hp=${p.hp} downed=${p.downed})`);
+}
+
+// ---- 3. solo down => gameover; two players => revive works
+{
+  const g = new Game();
+  const p = g.addPlayer('a', 'SOLO');
+  g.start();
+  step(g, 3);
+  g.hurtPlayer(p, 99);
+  ok(p.downed, 'lethal damage downs the player');
+  g.update(1 / 60);
+  ok(g.state === 'gameover', `last player down ends the run (state=${g.state})`);
+}
+{
+  const g = new Game();
+  const a = g.addPlayer('a', 'A');
+  const b = g.addPlayer('b', 'B');
+  ok(a.slot !== b.slot, 'two players get different slots');
+  g.start();
+  step(g, 3);
+  g.hurtPlayer(a, 99);
+  ok(a.downed && g.state !== 'gameover', 'one down does not end the run');
+  b.x = a.x; b.y = a.y; // stand over the body
+  for (let i = 0; i < 60 * 4; i++) { b.x = a.x; b.y = a.y; g.update(1 / 60); }
+  ok(!a.downed && a.hp > 0, `teammate revived them (downed=${a.downed} hp=${a.hp})`);
+}
+
+// ---- 3b. bleeding out blocks teammate revives, clearing the wave restores you
+{
+  const g = new Game();
+  const a = g.addPlayer('a', 'A');
+  const b = g.addPlayer('b', 'B');
+  g.start();
+  step(g, 3);
+  g.hurtPlayer(a, 99);
+  a.bleed = 0.01;
+  step(g, 0.5);
+  ok(a.out, 'bleedout clock marks the player as out');
+  for (let i = 0; i < 60 * 5; i++) { b.x = a.x; b.y = a.y; g.update(1 / 60); }
+  ok(a.downed, 'a bled-out player cannot be revived by a teammate');
+
+  // Clear the wave for them: wipe the field and drain the spawn queue.
+  g.enemies.length = 0;
+  g.spawnQueue.length = 0;
+  step(g, 0.2);
+  ok(!a.downed && !a.out && a.hp > 0, `wave clear brings them back (downed=${a.downed} hp=${a.hp})`);
+}
+
+// ---- 4. wave curve: boss every 5th, roster widens
+{
+  ok(waveSpec(5).isBoss && !waveSpec(4).isBoss, 'wave 5 is a boss wave, wave 4 is not');
+  ok(waveSpec(5).list.some(l => l.type === 'knight'), 'boss wave includes the knight');
+  const late = waveSpec(12);
+  ok(late.hpMul > waveSpec(1).hpMul, 'later waves have an hp multiplier');
+  const types = new Set();
+  for (let w = 1; w <= 12; w++) for (const l of waveSpec(w).list) types.add(l.type);
+  ok(types.size >= 5, `roster widens over 12 waves (${[...types].join(',')})`);
+}
+
+// ---- 5. a boss wave actually runs without exploding
+{
+  const g = new Game();
+  const p = g.addPlayer('a', 'X');
+  g.start();
+  step(g, 3);
+  g.beginWave(5);
+  for (let i = 0; i < 60 * 20; i++) {
+    p.hp = p.maxHp; p.downed = false;
+    g.setInput('a', { ax: Math.sin(i / 40), ay: Math.cos(i / 33), attack: true });
+    g.update(1 / 60);
+  }
+  ok(g.enemies.some(e => e.def.boss) || g.wave > 5, 'boss present and simulating');
+  ok(Number.isFinite(g.enemies.reduce((s, e) => s + e.x + e.y, 0)), 'no NaN positions after boss wave');
+}
+
+// ---- 6. six players all fit, seventh is refused
+{
+  const g = new Game();
+  for (let i = 0; i < 6; i++) ok(!!g.addPlayer('p' + i, 'P' + i), `player ${i + 1} seated`);
+  ok(g.addPlayer('p6', 'P6') === null, 'seventh player refused');
+  const slots = new Set([...g.players.values()].map(p => p.slot));
+  ok(slots.size === 6, 'six distinct colour slots');
+  g.removePlayer('p2');
+  const n = g.addPlayer('p7', 'NEW');
+  ok(n && n.slot === 2, 'freed slot is reused');
+}
+
+// ---- 7. players stay inside the arena and out of pillars
+{
+  const g = new Game();
+  const p = g.addPlayer('a', 'W');
+  g.start(); step(g, 3);
+  for (let i = 0; i < 60 * 6; i++) { g.setInput('a', { ax: -1, ay: -1 }); g.update(1 / 60); }
+  ok(p.x > 20 && p.y > 20, `clamped by the wall (x=${p.x.toFixed(1)} y=${p.y.toFixed(1)})`);
+  const { PILLARS } = await import('../js/arena.js');
+  p.x = PILLARS[0].x; p.y = PILLARS[0].y;
+  g.update(1 / 60);
+  ok(Math.hypot(p.x - PILLARS[0].x, p.y - PILLARS[0].y) >= PILLARS[0].r,
+     'pushed out of a pillar');
+}
+
+document.getElementById('log').textContent = out.join('\n');
+window.__results = out;
+window.__done = true;
+</script></body></html>

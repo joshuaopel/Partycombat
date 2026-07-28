@@ -1,0 +1,120 @@
+:root {
+  --bg: #0d0b14;
+  --bg-2: #171327;
+  --panel: #1e1933;
+  --edge: #352d55;
+  --gold: #ffd24a;
+  --ink: #f2eee4;
+  --muted: #9b93b5;
+  --green: #4fbf5a;
+  --red: #e2453c;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  overscroll-behavior: none;
+}
+
+body {
+  background-image: radial-gradient(circle at 50% 0%, #241d3d 0%, var(--bg) 60%);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 2px solid var(--edge);
+  background: var(--panel);
+  color: var(--ink);
+  padding: 0.75rem 1.25rem;
+  border-radius: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+  background: #2a2347;
+  border-color: var(--gold);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: linear-gradient(#f0b93a, #d38f1c);
+  border-color: #7a4f08;
+  color: #241a04;
+  font-weight: 700;
+}
+
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(#ffd05a, #e6a028);
+}
+
+input {
+  font: inherit;
+  background: #100d1c;
+  border: 2px solid var(--edge);
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  width: 100%;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+/* The full-width rule above is meant for text fields only — it otherwise
+   stretches a checkbox's layout box and strands it from its label. */
+input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--gold);
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.error {
+  color: #ff8f86;
+  min-height: 1.2em;
+  font-size: 0.85rem;
+}
+
+.pixel {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
