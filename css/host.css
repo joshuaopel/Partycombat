@@ -278,7 +278,21 @@ label.check {
   letter-spacing: 0.12em;
 }
 
+#minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 172px;
+  height: auto;
+  image-rendering: pixelated;
+  border: 2px solid var(--edge);
+  border-radius: 6px;
+  background: #0a0812;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+}
+
 #canvas-wrap {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;

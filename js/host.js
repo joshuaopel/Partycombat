@@ -3,6 +3,8 @@
 import { startHost, send, MAX_PLAYERS } from './net.js';
 import { Game } from './game.js';
 import { heroSheet, loadSprites, PLAYER_COLORS } from './sprites.js';
+import { loadWorldArt } from './world.js';
+import { Camera, drawScene } from './render.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +32,7 @@ const ui = {
   goRows: $('go-rows'),
   again: $('again'),
   status: $('status'),
+  mmCanvas: $('minimap'),
 };
 
 const ctx = ui.canvas.getContext('2d');
@@ -46,8 +49,10 @@ let peer = null;
 
 // The lobby and the render loop both need the sprite atlas. The room code
 // arrives separately, so a slow CDN never leaves a dead screen.
-loadSprites().then(
+Promise.all([loadSprites(), loadWorldArt()]).then(
   () => {
+    game.world.bake();
+    buildMinimap();
     renderSlots();
     requestAnimationFrame(loop);
   },
@@ -152,7 +157,9 @@ function onConnection(conn) {
         color: p.color.t,
         colorName: p.color.name,
         state: game.state,
+        seed: game.seed,
       });
+      broadcastRoster();
       renderSlots();
       return;
     }
@@ -180,6 +187,7 @@ function onConnection(conn) {
       p.input = { ax: 0, ay: 0, attack: false, dash: false };
     }
     renderSlots();
+    broadcastRoster();
   };
   conn.on('close', drop);
   conn.on('error', drop);
@@ -228,6 +236,12 @@ function toPlayer(id, msg) {
 
 function broadcast(msg) {
   for (const c of conns.values()) send(c, msg);
+}
+
+/** Names and colours keyed by slot; snapshots then only carry slot numbers. */
+function broadcastRoster() {
+  const list = [...game.players.values()].map((p) => ({ slot: p.slot, id: p.id, name: p.name }));
+  broadcast({ t: 'roster', players: list });
 }
 
 function handleGameEvent(ev) {
@@ -407,23 +421,94 @@ function showGameOver(ev) {
 
 // -------------------------------------------------------------- main loop
 
+// The TV is a director's view: it frames the whole party, zooming out as they
+// spread across the island, so spectators always see everyone.
+const HOST_W = 640;
+const HOST_H = 384;
+const cam = new Camera(HOST_W, HOST_H, 1);
+let minimap = null;
+
+function buildMinimap() {
+  minimap = game.world.minimap(1 / 14);
+  ui.mmCanvas.width = minimap.width;
+  ui.mmCanvas.height = minimap.height;
+}
+
+function updateDirectorCamera(dt) {
+  const live = game.activePlayers();
+  if (!live.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of live) {
+    x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+    y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+  }
+  const pad = 150;
+  const wantZoom = Math.max(
+    0.45,
+    Math.min(1.6, Math.min(HOST_W / (x1 - x0 + pad), HOST_H / (y1 - y0 + pad)))
+  );
+  // Ease the zoom so a sprinting player doesn't snap the whole view.
+  cam.zoom += (wantZoom - cam.zoom) * (1 - Math.exp(-3 * dt));
+  cam.followSmooth((x0 + x1) / 2, (y0 + y1) / 2, game.world, dt, 4);
+}
+
+function drawMinimap() {
+  if (!minimap) return;
+  const c = ui.mmCanvas.getContext('2d');
+  c.imageSmoothingEnabled = false;
+  c.globalAlpha = 0.85;
+  c.drawImage(minimap, 0, 0);
+  c.globalAlpha = 1;
+  const sx = minimap.width / game.world.w;
+  const sy = minimap.height / game.world.h;
+  // Camera rect.
+  c.strokeStyle = 'rgba(255,255,255,0.7)';
+  c.lineWidth = 1;
+  c.strokeRect(cam.x * sx, cam.y * sy, cam.viewW * sx, cam.viewH * sy);
+  for (const e of game.enemies) {
+    c.fillStyle = e.def.boss ? '#ffd24a' : 'rgba(230,80,70,0.9)';
+    c.fillRect(e.x * sx - 1, e.y * sy - 1, e.def.boss ? 4 : 2, e.def.boss ? 4 : 2);
+  }
+  for (const p of game.activePlayers()) {
+    c.fillStyle = p.downed ? '#555' : p.color.t;
+    c.fillRect(p.x * sx - 2, p.y * sy - 2, 4, 4);
+  }
+}
+
 function fitCanvas() {
   const wrap = ui.canvas.parentElement;
   const pad = 16;
-  const sx = (wrap.clientWidth - pad) / 480;
-  const sy = (wrap.clientHeight - pad) / 288;
-  // Integer scaling keeps the pixel art crisp; fall back to fractional if the
-  // window is too small for a clean 1x.
-  const raw = Math.min(sx, sy);
-  const scale = raw >= 1 ? Math.floor(raw) : raw;
-  ui.canvas.style.width = `${480 * scale}px`;
-  ui.canvas.style.height = `${288 * scale}px`;
+  // The director view is for spectating, not precise play, so fill the screen
+  // rather than snapping to integer scales. Phones keep integer zoom, where
+  // crispness actually matters.
+  const scale = Math.min((wrap.clientWidth - pad) / HOST_W, (wrap.clientHeight - pad) / HOST_H);
+  ui.canvas.style.width = `${Math.round(HOST_W * scale)}px`;
+  ui.canvas.style.height = `${Math.round(HOST_H * scale)}px`;
 }
 window.addEventListener('resize', fitCanvas);
+
+function drawBanner(c) {
+  const b = game.banner;
+  if (!b) return;
+  c.save();
+  c.globalAlpha = Math.min(1, b.t / 0.4);
+  c.textAlign = 'center';
+  c.fillStyle = 'rgba(10,8,16,0.72)';
+  c.fillRect(0, HOST_H / 2 - 26, HOST_W, 44);
+  c.fillStyle = '#ffd24a';
+  c.font = 'bold 20px monospace';
+  c.fillText(b.text, HOST_W / 2, HOST_H / 2 - 4);
+  c.fillStyle = '#e8e4d8';
+  c.font = '9px monospace';
+  c.fillText(b.sub, HOST_W / 2, HOST_H / 2 + 11);
+  c.restore();
+}
 
 let last = performance.now();
 let hudAcc = 0;
 let netAcc = 0;
+let youAcc = 0;
+const SNAP_HZ = 15;
 
 function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000);
@@ -431,7 +516,12 @@ function loop(now) {
 
   pumpLocalInput();
   game.update(dt);
-  game.render(ctx);
+
+  updateDirectorCamera(dt);
+  ctx.clearRect(0, 0, HOST_W, HOST_H);
+  drawScene(ctx, game.world, cam, game.scene(), { names: true, shake: game.shakeAmt });
+  drawBanner(ctx);
+  drawMinimap();
 
   hudAcc += dt;
   if (hudAcc > 0.1) {
@@ -444,10 +534,19 @@ function loop(now) {
     syncTopbar(hud);
   }
 
-  // Controllers only need their own slice, at a modest rate.
+  // World snapshots drive every phone's own camera and rendering.
   netAcc += dt;
-  if (netAcc > 0.12) {
+  if (netAcc > 1 / SNAP_HZ) {
     netAcc = 0;
+    // Always drain, so queued effects can't go stale for a late joiner.
+    const snap = game.snapshot();
+    for (const c of conns.values()) send(c, snap);
+  }
+
+  // Personal HUD numbers change slowly; they don't need the snapshot rate.
+  youAcc += dt;
+  if (youAcc > 0.15) {
+    youAcc = 0;
     for (const [id, conn] of conns) {
       const p = game.players.get(id);
       if (p) send(conn, game.playerState(p));

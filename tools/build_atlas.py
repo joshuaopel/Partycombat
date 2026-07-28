@@ -9,7 +9,11 @@ import numpy as np, json, os
 from scipy import ndimage
 
 SRC = os.path.dirname(os.path.abspath(__file__))
-OUT = '/home/user/Partycombat/assets'
+# Source sheets are not in the repo; point PCBT_SHEETS at wherever you
+# downloaded them (defaults to this directory).
+SRC = os.environ.get('PCBT_SHEETS', SRC)
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'assets')
+OUT = os.path.normpath(OUT)
 os.makedirs(OUT, exist_ok=True)
 
 def bgmask(a, bgs):

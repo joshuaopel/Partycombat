@@ -131,18 +131,96 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   ok(n && n.slot === 2, 'freed slot is reused');
 }
 
-// ---- 7. players stay inside the arena and out of pillars
+// ---- 7. the world bounds and blocks correctly
 {
-  const g = new Game();
+  const g = new Game({ seed: 4242 });
   const p = g.addPlayer('a', 'W');
   g.start(); step(g, 3);
-  for (let i = 0; i < 60 * 6; i++) { g.setInput('a', { ax: -1, ay: -1 }); g.update(1 / 60); }
-  ok(p.x > 20 && p.y > 20, `clamped by the wall (x=${p.x.toFixed(1)} y=${p.y.toFixed(1)})`);
-  const { PILLARS } = await import('../js/arena.js');
-  p.x = PILLARS[0].x; p.y = PILLARS[0].y;
-  g.update(1 / 60);
-  ok(Math.hypot(p.x - PILLARS[0].x, p.y - PILLARS[0].y) >= PILLARS[0].r,
-     'pushed out of a pillar');
+  ok(!g.world.blocked(p.x, p.y), 'players spawn on walkable ground');
+
+  // Walk hard into the north-west for a long time: the island's water ring
+  // has to stop them well before the world origin.
+  for (let i = 0; i < 60 * 40; i++) { g.setInput('a', { ax: -1, ay: -1 }); g.update(1 / 60); }
+  ok(p.x > 4 && p.y > 4, `kept inside the world (x=${p.x.toFixed(1)} y=${p.y.toFixed(1)})`);
+  ok(!g.world.blocked(p.x, p.y), 'never ends up standing in water or a tree');
+
+  // Dropped on top of a solid prop, collision pushes back out.
+  // Collision itself, independent of whether a player happens to be upright.
+  const tree = g.world.props.find((q) => q.r > 10);
+  const dead = { x: tree.x, y: tree.y }; // exactly centred: the degenerate case
+  g.world.collide(dead, 7);
+  ok(Math.hypot(dead.x - tree.x, dead.y - tree.y) >= tree.r,
+     `pushed out of a prop from dead centre (${Math.hypot(dead.x - tree.x, dead.y - tree.y).toFixed(1)} vs r=${tree.r})`);
+
+  // Walking straight at a shoreline should slide along it, not stop dead.
+  let shore = null;
+  for (const q of [...Array(4000).keys()]) {
+    const x = 30 + (q * 37) % (g.world.w - 60);
+    const y = 30 + (q * 91) % (g.world.h - 60);
+    if (!g.world.inWater(x, y, 7) && g.world.inWater(x + 20, y, 7)) { shore = { x, y }; break; }
+  }
+  ok(!!shore, 'found a shoreline to test against');
+  if (shore) {
+    const body = { x: shore.x, y: shore.y };
+    for (let i = 0; i < 120; i++) g.world.move(body, 2, 1.2, 7);
+    ok(!g.world.inWater(body.x, body.y, 7), 'walking into water never enters it');
+    ok(body.y > shore.y + 5, `still slides along the shore (moved ${(body.y - shore.y).toFixed(0)}px along)`);
+  }
+}
+
+// ---- 8. the same seed builds the same island on host and phone
+{
+  const { World } = await import('../js/world.js');
+  const a = new World(987654);
+  const b = new World(987654);
+  const c = new World(987655);
+  ok(a.kind.every((v, i) => v === b.kind[i]), 'same seed gives identical terrain');
+  ok(a.props.length === b.props.length &&
+     a.props.every((p, i) => p.x === b.props[i].x && p.y === b.props[i].y && p.name === b.props[i].name),
+     'same seed gives identical props');
+  ok(!c.kind.every((v, i) => v === a.kind[i]), 'a different seed gives a different island');
+}
+
+// ---- 9. snapshots round-trip through the client decoder
+{
+  const { SceneBuffer } = await import('../js/scene.js');
+  const g = new Game({ seed: 77 });
+  const a = g.addPlayer('a', 'ALPHA');
+  const b = g.addPlayer('b', 'BETA');
+  g.start(); step(g, 4);
+  const snap = g.snapshot();
+  ok(snap.p.length === 2, `snapshot carries both players (${snap.p.length})`);
+  ok(snap.e.length === g.enemies.length, `snapshot carries every enemy (${snap.e.length})`);
+
+  const buf = new SceneBuffer();
+  buf.setRoster([{ slot: a.slot, id: 'a', name: 'ALPHA' }, { slot: b.slot, id: 'b', name: 'BETA' }]);
+  const t0 = performance.now();
+  buf.push(snap, t0);
+  step(g, 0.2);
+  buf.push(g.snapshot(), t0 + 66);
+  const sc = buf.sample(t0 + 66);
+  ok(!!sc, 'buffer produces a scene');
+  ok(sc.players.length === 2 && sc.players.some((p) => p.name === 'ALPHA'),
+     'decoded players keep their roster names');
+  ok(sc.players.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
+     'decoded positions are finite');
+  const near = sc.players.find((p) => p.slot === a.slot);
+  ok(Math.hypot(near.x - a.x, near.y - a.y) < 24,
+     `decoded position tracks the simulation (off by ${Math.hypot(near.x - a.x, near.y - a.y).toFixed(1)}px)`);
+  ok(sc.enemies.every((e) => typeof e.type === 'string'), 'decoded enemies have known types');
+
+  // Bandwidth only matters on a busy field, so measure a late wave rather
+  // than the three enemies wave 1 opens with.
+  const busy = new Game({ seed: 5 });
+  for (let i = 0; i < 6; i++) busy.addPlayer('q' + i, 'HERO' + i);
+  busy.start(); step(busy, 3);
+  busy.beginWave(14);
+  step(busy, 14);
+  const bigSnap = busy.snapshot();
+  const size = JSON.stringify(bigSnap).length;
+  const perSec = ((size * 15) / 1024).toFixed(0);
+  ok(bigSnap.e.length >= 10, `busy field for the size check (${bigSnap.e.length} enemies, 6 players)`);
+  ok(size < 4000, `snapshot stays small (${size} bytes -> ~${perSec} KB/s per phone at 15 Hz)`);
 }
 
 document.getElementById('log').textContent = out.join('\n');

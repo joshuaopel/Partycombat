@@ -3,6 +3,9 @@
 
 import { joinRoom, send } from './net.js';
 import { heroSheet, loadSprites, spritesReady } from './sprites.js';
+import { loadWorldArt, World } from './world.js';
+import { Camera, drawScene, drawOffscreenMarkers } from './render.js';
+import { SceneBuffer } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,6 +43,7 @@ const ui = {
   oWave: $('o-wave'),
   oScore: $('o-score'),
   toast: $('toast'),
+  view: $('view'),
 };
 
 const input = { ax: 0, ay: 0, attack: false, dash: false };
@@ -48,10 +52,15 @@ let me = null;
 let lastSent = 0;
 let dashLatch = false;
 
-// Start fetching the atlas straight away so the hero preview is instant.
-loadSprites().catch(() => {
-  /* surfaced when the preview is actually needed */
+// Fetch the art up front so the preview and the world are ready on join.
+const artReady = Promise.all([loadSprites(), loadWorldArt()]).catch(() => {
+  /* surfaced when the art is actually needed */
 });
+
+const buffer = new SceneBuffer();
+const cam = new Camera(1, 1, 2);
+let world = null;
+let viewCtx = null;
 
 // Prefill from the QR link.
 const params = new URLSearchParams(location.search);
@@ -119,6 +128,12 @@ function onMessage(msg) {
       me = msg;
       onSeated();
       break;
+    case 'roster':
+      buffer.setRoster(msg.players);
+      break;
+    case 'snap':
+      buffer.push(msg);
+      break;
     case 'reject':
       ui.joinerr.textContent = msg.reason || 'The host turned you away.';
       ui.joinbtn.disabled = false;
@@ -164,7 +179,14 @@ function onMessage(msg) {
 }
 
 async function onSeated() {
+  await artReady;
   if (!spritesReady()) await loadSprites();
+  // The seed alone rebuilds the host's island byte for byte.
+  if (me.seed !== undefined && (!world || world.seed !== (me.seed >>> 0))) {
+    world = new World(me.seed);
+    world.bake();
+  }
+  if (!viewCtx) viewCtx = ui.view.getContext('2d');
   const sheet = heroSheet(me.slot);
   const src = sheet.down[0];
   ui.preview.width = src.width;
@@ -428,6 +450,50 @@ function pumpKeys() {
   }
   return false;
 }
+
+// ------------------------------------------------------------- world view
+
+function resizeView() {
+  const r = ui.view.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = Math.round(r.width * dpr);
+  const h = Math.round(r.height * dpr);
+  if (ui.view.width !== w || ui.view.height !== h) {
+    ui.view.width = w;
+    ui.view.height = h;
+  }
+  // Integer zoom keeps the pixel art crisp. Aim for roughly 210 logical pixels
+  // across the short side, which frames a hero and the fight around them.
+  const zoom = Math.max(2, Math.min(5, Math.round(Math.min(w, h) / 210)));
+  cam.resize(w, h, zoom);
+}
+
+let lastFrame = performance.now();
+
+function frame(now) {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+
+  if (world && viewCtx && !ui.pad.classList.contains('hidden')) {
+    resizeView();
+    buffer.update(dt);
+    const scene = buffer.sample(now);
+    if (scene) {
+      const mine = scene.players.find((p) => p.slot === me.slot);
+      if (mine) cam.followSmooth(mine.x, mine.y, world, dt, 12);
+      viewCtx.clearRect(0, 0, cam.w, cam.h);
+      drawScene(viewCtx, world, cam, scene, { names: true, highlight: me.id });
+      // Teammates off the edge of your own camera.
+      drawOffscreenMarkers(viewCtx, cam, scene.players, me.id);
+    }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.addEventListener('resize', resizeView);
+window.addEventListener('orientationchange', () => setTimeout(resizeView, 250));
 
 // ---------------------------------------------------------------- send loop
 

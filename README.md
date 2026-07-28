@@ -12,17 +12,31 @@ GitHub Pages with no backend.
 
 There is no game server. The host page opens a WebRTC peer whose id is
 derived from the room code, and each phone dials that id directly. **The host
-browser is the authoritative simulation**: phones only ever send input
-(stick direction, slash, dash) and receive back their own HUD slice. That
-keeps the phones dumb, avoids any state divergence, and means the whole thing
-is hostable from static files.
+browser is the authoritative simulation** — it alone runs physics, AI and
+scoring, so there is nothing to keep in sync and no way for clients to
+disagree.
+
+The world is bigger than any one screen, so **every phone is its own screen**
+with its own camera following its own hero. Phones send input and receive
+world snapshots at 15 Hz; they render at their own frame rate, interpolating
+between the two most recent snapshots. The TV runs a director's camera that
+frames the whole party, zooming out as they spread out, plus a minimap.
+
+```
+                  ┌──────────────────────────┐
+   input ────────▶│  host browser            │
+                  │  simulation + director   │
+   snapshot ◀─────│  camera on the TV        │
+   (15 Hz)        └──────────────────────────┘
+        │
+        ▼
+   phone: own camera, own render loop, own view of the island
+```
+
+No map data crosses the wire. The host sends a four-byte seed and each phone
+regenerates a byte-identical island from it.
 
 [PeerJS](https://peerjs.com) handles signalling via its free public broker.
-
-```
-phone ──input──▶  host browser  ──HUD state──▶ phone
-                  (game loop, physics, AI, scoring)
-```
 
 ## Playing
 
@@ -30,10 +44,11 @@ phone ──input──▶  host browser  ──HUD state──▶ phone
 2. Everyone opens `play.html` on their phone, enters the code and a name.
 3. Host presses **Start the onslaught**.
 
-Controls on the phone: drag anywhere on the left to move, **SLASH** to attack,
-**DASH** for a short burst with brief invulnerability. The host screen can
-also seat one keyboard player (WASD/arrows, `J`/Space to slash, `K`/Shift to
-dash) — handy for testing solo.
+Your phone shows your own view of the island. Drag anywhere on the left to
+move, **SLASH** to attack, **DASH** for a short burst with brief
+invulnerability. Arrows at the screen edge point to teammates who are off your
+camera. The host screen can also seat one keyboard player (WASD/arrows,
+`J`/Space to slash, `K`/Shift to dash) — handy for testing solo.
 
 Landscape is more comfortable, but portrait works.
 
@@ -47,7 +62,8 @@ Landscape is more comfortable, but portrait works.
   score multiplier that resets when you take a hit.
 - Enemies escalate: Octoroks (ranged) → Moblins (lunging melee) → Keese (fast,
   erratic) → Stalfos (tanky) → Taros (teleporting casters), with an Armos
-  Knight boss every fifth wave.
+  Knight boss every fifth wave. Waves spawn in a ring around the party
+  wherever they happen to be, so spreading out does not buy you peace.
 
 ### If someone drops
 
@@ -104,8 +120,23 @@ tunic — so six players stay tellable apart at a glance. Pickups, projectiles
 and the swing sword are original pixel art in `js/sprites.js`, since they are
 icons rather than characters.
 
-The arena is generated procedurally in [`js/arena.js`](js/arena.js) and baked
-once to an offscreen canvas.
+### The world
+
+The island is 2400x1440 — about five screens across — generated procedurally
+in [`js/world.js`](js/world.js) from value noise, with an elevation falloff at
+the edges that turns the map into a bounded island. Terrain boundaries are
+stippled with per-tile jitter rather than stepping along hard 16px edges.
+Trees clump into woods where a separate noise field is high.
+
+Ground tiles are sampled from the assembled Light World map — they are the
+game's real terrain tiles, taken in context — and props (the big round trees,
+boulders, bushes, stumps) come from the Overworld Tiles sheet. The whole
+island is baked once to an offscreen canvas and each camera blits a sub-rect
+of it, which costs one `drawImage` per frame regardless of world size.
+
+Collision is axis-separated so bodies slide along a shoreline or a tree
+instead of sticking to it. Water is the only impassable terrain; solid props
+are circles bucketed into a uniform grid.
 
 ### Rebuilding the atlas
 
@@ -114,16 +145,27 @@ source sheets, which are deliberately not in the repo — download them from the
 TSR link above into the same directory as the script:
 
 ```
-link_sheet.png          Link
-sheets/lightworld.png   Minor Light World Enemies  (Octorok, Keese)
-sheets/stalfos.png      Stalfos
-sheets/moblin.png       Taros & Moblin
-sheets/armos.png        Armos Knights
+link_sheet.png              Link
+sheets/lightworld.png       Minor Light World Enemies  (Octorok, Keese)
+sheets/stalfos.png          Stalfos
+sheets/moblin.png           Taros & Moblin
+sheets/armos.png            Armos Knights
+sheets/overworld.png        Overworld Tiles            (trees, rocks, bushes)
+sheets/lightworld_map.png   Light World                (ground tiles)
 ```
 
-Then `pip install pillow numpy scipy && python3 tools/build_atlas.py`. The
-script finds frames by flood-filling away each sheet's background colour, so it
-does not depend on hand-typed pixel coordinates.
+Then:
+
+```sh
+pip install pillow numpy scipy
+PCBT_SHEETS=/path/to/sheets python3 tools/build_atlas.py   # characters
+PCBT_SHEETS=/path/to/sheets python3 tools/build_world.py   # terrain + props
+```
+
+Both scripts locate frames by flood-filling away each sheet's background
+colour, so they do not depend on hand-typed pixel coordinates. Ground tiles
+were chosen by frequency-scanning the Light World map on its 16px grid and
+keeping the most common terrain.
 
 ## Layout
 
@@ -131,25 +173,31 @@ does not depend on hand-typed pixel coordinates.
 index.html          landing page — host or join
 host.html           big screen: lobby, arena, scoreboard
 play.html           phone controller
-assets/sprites.png  packed sprite atlas (built by tools/build_atlas.py)
-assets/sprites.json frame rectangles and hero metrics
+assets/sprites.*    character atlas + frame metadata
+assets/world.*      terrain tiles and props + metadata
 js/sprites.js       atlas loading, mail recolouring, drawing helpers
-js/arena.js         procedural arena, collision, spawn points
+js/world.js         island generation, baking, collision, spawn points
+js/render.js        camera + the one copy of the scene drawing code
+js/scene.js         client-side snapshot decoding and interpolation
 js/enemies.js       enemy archetypes (AI) and the wave curve
-js/game.js          authoritative simulation and rendering
+js/game.js          authoritative simulation, scene building, snapshots
 js/net.js           PeerJS transport
-js/host.js          host wiring: lobby, connections, main loop
-js/play.js          controller wiring: touch stick, buttons, HUD
-tools/build_atlas.py
-                    slices the reference sheets into the atlas
+js/host.js          host wiring: lobby, director camera, minimap, main loop
+js/play.js          phone wiring: world view, touch stick, buttons, HUD
+tools/build_atlas.py  slices character frames out of the reference sheets
+tools/build_world.py  slices terrain tiles and props
 tests/sim.html      headless assertions over the simulation
 tests/sprites.html  renders every frame for eyeballing art
+tests/world.html    generates an island and shows it whole and at 1:1
 ```
 
 ## Tests
 
-Open `tests/sim.html` in a browser — it runs 30 assertions against the
+Open `tests/sim.html` in a browser — it runs 46 assertions against the
 simulation (combat resolves, waves advance and escalate, downing, revival and
-bleedout, six-player seating, arena collision) and prints pass/fail.
-`tests/sprites.html` renders every frame of every mail colour and enemy, which
-is the fastest way to check art changes.
+bleedout, six-player seating, world collision and shoreline sliding, seed
+determinism, and snapshot encode/decode round-tripping) and prints pass/fail.
+
+`tests/sprites.html` renders every frame of every mail colour and enemy.
+`tests/world.html` generates an island and shows it both whole and at 1:1;
+pass `?seed=N` to try a different one.

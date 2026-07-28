@@ -2,11 +2,15 @@
 // receive HUD state. Everything here is deterministic per-frame given inputs,
 // but we don't need lockstep determinism since there's exactly one simulator.
 
-import {
-  heroSheet, enemySprite, enemyFrames, prop, drawSprite, drawAt, drawGrounded,
-  drawSword, PLAYER_COLORS,
-} from './sprites.js';
-import { W, H, BOUNDS, arenaCanvas, collide, blocked, edgeSpawn, PILLARS } from './arena.js';
+import { PLAYER_COLORS } from './sprites.js';
+import { World, WORLD_W, WORLD_H } from './world.js';
+import { DIR_ANGLE } from './render.js';
+
+// Wire encoding: identities and enums travel as small integers.
+export const DIR_NAMES = ['down', 'up', 'left', 'right'];
+export const DIR_INDEX = { down: 0, up: 1, left: 2, right: 3 };
+export const ENEMY_NAMES = ['octo', 'grunt', 'bat', 'bones', 'mage', 'knight'];
+const ENEMY_INDEX = Object.fromEntries(ENEMY_NAMES.map((n, i) => [n, i]));
 import { ENEMY_TYPES, waveSpec } from './enemies.js';
 
 const PLAYER_SPEED = 82;
@@ -24,12 +28,13 @@ const REVIVE_TIME = 2.4;
 const REVIVE_RANGE = 24;
 const INTERMISSION = 5;
 
-const DIR_ANGLE = { right: 0, down: Math.PI / 2, left: Math.PI, up: -Math.PI / 2 };
-
 export class Game {
-  constructor({ onEvent } = {}) {
+  constructor({ onEvent, seed } = {}) {
     this.onEvent = onEvent || (() => {});
     this.players = new Map(); // id -> player
+    // The seed is all a phone needs to build a byte-identical world.
+    this.seed = (seed ?? ((Math.random() * 0xffffffff) >>> 0)) >>> 0;
+    this.world = new World(this.seed);
     this.reset();
   }
 
@@ -48,6 +53,9 @@ export class Game {
     this.spawnT = 0;
     this.spec = null;
     this.shakeAmt = 0;
+    this.fx = [];
+    this.fxFloaters = [];
+    this.entId = 0;
     this.banner = null;
     this.time = 0;
     this.bestWave = this.bestWave || 0;
@@ -81,8 +89,8 @@ export class Game {
 
   blankStats() {
     return {
-      x: W / 2,
-      y: H / 2,
+      x: WORLD_W / 2,
+      y: WORLD_H / 2,
       vx: 0,
       vy: 0,
       dir: 'down',
@@ -114,12 +122,16 @@ export class Game {
   }
 
   placeAtSpawn(p) {
-    const n = Math.max(1, this.players.size);
-    const i = p.slot;
-    const ang = (i / Math.max(n, 4)) * Math.PI * 2;
-    p.x = W / 2 + Math.cos(ang) * 34;
-    p.y = H / 2 + Math.sin(ang) * 26;
-    collide(p, 7);
+    // Fan the party out around the middle of the island, nudging off anything
+    // solid so nobody starts inside a tree.
+    const ang = (p.slot / PLAYER_COLORS.length) * Math.PI * 2;
+    p.x = this.world.w / 2 + Math.cos(ang) * 46;
+    p.y = this.world.h / 2 + Math.sin(ang) * 34;
+    for (let i = 0; i < 30 && this.world.blocked(p.x, p.y); i++) {
+      p.x += Math.cos(ang) * 12;
+      p.y += Math.sin(ang) * 12;
+    }
+    this.world.collide(p, 7);
   }
 
   removePlayer(id) {
@@ -182,9 +194,11 @@ export class Game {
   spawnEnemy(type, at = null) {
     const def = ENEMY_TYPES[type];
     if (!def) return;
-    const spot = at || edgeSpawn(Math.random, this.activePlayers());
+    // Waves close in on the party rather than trickling from a map edge.
+    const spot = at || this.world.spawnNear(Math.random, this.livePlayers());
     const hp = Math.round(def.hp * (this.spec ? this.spec.hpMul : 1));
     const e = {
+      id: ++this.entId, // stable across snapshots so phones can interpolate
       type,
       def,
       x: spot.x,
@@ -208,6 +222,7 @@ export class Game {
     };
     this.enemies.push(e);
     for (let i = 0; i < 8; i++) this.puff(e.x, e.y, '#e8e4d8');
+    this.emit(2, e.x, e.y);
   }
 
   // --------------------------------------------------------- enemy hooks
@@ -221,10 +236,7 @@ export class Game {
       },
       game: this,
       nearestPlayer: (e) => this.nearestPlayer(e.x, e.y),
-      randomSpot: () => ({
-        x: BOUNDS.x0 + 16 + Math.random() * (BOUNDS.x1 - BOUNDS.x0 - 32),
-        y: BOUNDS.y0 + 16 + Math.random() * (BOUNDS.y1 - BOUNDS.y0 - 32),
-      }),
+      randomSpot: () => this.world.spawnNear(Math.random, this.livePlayers(), 60, 170),
       enemyShot: (e, tx, ty, kind, speed, dmg) => {
         const ang = Math.atan2(ty - e.y, tx - e.x);
         this._ctx.enemyShotAngle(e, ang, kind, speed, dmg);
@@ -323,13 +335,8 @@ export class Game {
     // Guarantee some sustain between waves, scaled to party size.
     const hearts = Math.max(1, Math.ceil(this.players.size / 2));
     for (let i = 0; i < hearts; i++) {
-      this.pickups.push({
-        kind: 'heart',
-        x: BOUNDS.x0 + 24 + Math.random() * (BOUNDS.x1 - BOUNDS.x0 - 48),
-        y: BOUNDS.y0 + 24 + Math.random() * (BOUNDS.y1 - BOUNDS.y0 - 48),
-        life: 30,
-        bob: Math.random() * 6,
-      });
+      const spot = this.world.spawnNear(Math.random, this.livePlayers(), 30, 120);
+      this.pickups.push({ kind: 'heart', x: spot.x, y: spot.y, life: 30, bob: Math.random() * 6 });
     }
     this.onEvent({ t: 'waveclear', wave: this.wave, bonus });
   }
@@ -404,13 +411,10 @@ export class Game {
     }
 
     if (p.dashT > 0) {
-      p.x += p.dashVX * dt;
-      p.y += p.dashVY * dt;
+      this.world.move(p, p.dashVX * dt, p.dashVY * dt, 7);
     } else {
-      p.x += ax * PLAYER_SPEED * dt;
-      p.y += ay * PLAYER_SPEED * dt;
+      this.world.move(p, ax * PLAYER_SPEED * dt, ay * PLAYER_SPEED * dt, 7);
     }
-    collide(p, 7);
 
     // Attack
     if (inp.attack && p.atkCool <= 0 && p.atkT <= 0) {
@@ -472,6 +476,7 @@ export class Game {
       e.ky += Math.sin(a) * k;
     }
     for (let i = 0; i < 5; i++) this.puff(e.x, e.y, '#ffffff');
+    this.emit(0, e.x, e.y);
     if (e.hp <= 0) this.killEnemy(e, byPlayer);
   }
 
@@ -490,6 +495,7 @@ export class Game {
     const n = e.def.boss ? 26 : 10;
     for (let i = 0; i < n; i++) this.puff(e.x, e.y, e.def.boss ? '#ffd24a' : '#e8e4d8');
     if (e.def.boss) this.shakeAmt = Math.max(this.shakeAmt, 10);
+    this.emit(e.def.boss ? 3 : 1, e.x, e.y);
 
     // Drops: rupees often, hearts rarely (bosses always).
     const r = Math.random();
@@ -509,11 +515,10 @@ export class Game {
     this.shakeAmt = Math.max(this.shakeAmt, 4);
     if (fromX !== undefined) {
       const a = Math.atan2(p.y - fromY, p.x - fromX);
-      p.x += Math.cos(a) * 8;
-      p.y += Math.sin(a) * 8;
-      collide(p, 7);
+      this.world.move(p, Math.cos(a) * 8, Math.sin(a) * 8, 7);
     }
     for (let i = 0; i < 8; i++) this.puff(p.x, p.y, '#e2453c');
+    this.emit(0, p.x, p.y);
     if (p.hp <= 0) {
       p.hp = 0;
       p.downed = true;
@@ -538,14 +543,9 @@ export class Game {
       e.def.think(e, ctx, dt);
 
       const speed = e.def.speed * (this.spec ? this.spec.speedMul : 1);
-      let nx = e.x + (e.vx * speed + e.kx) * dt;
-      let ny = e.y + (e.vy * speed + e.ky) * dt;
+      this.world.move(e, (e.vx * speed + e.kx) * dt, (e.vy * speed + e.ky) * dt, e.radius);
       e.kx *= Math.pow(0.0025, dt);
       e.ky *= Math.pow(0.0025, dt);
-      const before = { x: nx, y: ny };
-      collide(before, e.radius);
-      e.x = before.x;
-      e.y = before.y;
       if (e.vx || e.vy) e.face = e.vx < -0.15 ? 'l' : e.vx > 0.15 ? 'r' : e.face;
 
       // Contact damage.
@@ -566,7 +566,7 @@ export class Game {
       s.x += s.vx * dt;
       s.y += s.vy * dt;
       s.life -= dt;
-      if (s.life <= 0 || blocked(s.x, s.y)) {
+      if (s.life <= 0 || this.world.blocked(s.x, s.y)) {
         s.dead = true;
         for (let i = 0; i < 4; i++) this.puff(s.x, s.y, '#b3ae9c');
         continue;
@@ -651,6 +651,15 @@ export class Game {
 
   floater(x, y, text, color) {
     this.floaters.push({ x, y, text, color, life: 0.9, t: 0.9 });
+    // Phones replay these locally rather than receiving per-frame positions.
+    if (this.fxFloaters.length < 12) {
+      this.fxFloaters.push([Math.round(x), Math.round(y), text, color]);
+    }
+  }
+
+  /** Queue a one-shot effect for the phones (0 hit, 1 kill, 2 spawn, 3 boom). */
+  emit(kind, x, y) {
+    if (this.fx.length < 24) this.fx.push([kind, Math.round(x), Math.round(y)]);
   }
 
   updateParticles(dt) {
@@ -673,193 +682,112 @@ export class Game {
     this.floaters = this.floaters.filter((f) => f.life > 0);
   }
 
-  // -------------------------------------------------------------- render
+  // ------------------------------------------------------- views & network
 
-  render(ctx) {
-    ctx.imageSmoothingEnabled = false;
-    ctx.save();
-    if (this.shakeAmt > 0.2) {
-      ctx.translate(
-        (Math.random() - 0.5) * this.shakeAmt,
-        (Math.random() - 0.5) * this.shakeAmt
-      );
-    }
-
-    ctx.drawImage(arenaCanvas(), 0, 0);
-
-    // Ground-level marks first.
-    for (const k of this.pickups) {
-      if (k.life < 5 && Math.floor(k.life * 8) % 2 === 0) continue; // blink out
-      const y = k.y + Math.sin(k.bob) * 2;
-      this.shadow(ctx, k.x, k.y + 5, 5);
-      drawSprite(ctx, prop(k.kind), k.x, y);
-    }
-
-    for (const p of this.particles) {
-      if (p.kind !== 'wave') continue;
-      ctx.save();
-      ctx.globalAlpha = Math.max(0, p.life / p.t) * 0.8;
-      ctx.strokeStyle = '#ffd24a';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Depth sort so sprites overlap correctly.
-    const drawables = [];
-    for (const e of this.enemies) drawables.push({ y: e.y, e });
-    for (const p of this.players.values()) drawables.push({ y: p.y, p });
-    drawables.sort((a, b) => a.y - b.y);
-
-    for (const d of drawables) {
-      if (d.e) this.drawEnemy(ctx, d.e);
-      else this.drawPlayer(ctx, d.p);
-    }
-
-    for (const s of this.shots) {
-      drawSprite(ctx, prop(s.kind === 'bolt' ? 'bolt' : 'rock'), s.x, s.y);
-    }
-
-    for (const p of this.particles) {
-      if (p.kind !== 'puff') continue;
-      ctx.globalAlpha = Math.max(0, p.life / p.t);
-      ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
-    }
-    ctx.globalAlpha = 1;
-
-    for (const f of this.floaters) {
-      ctx.globalAlpha = Math.min(1, f.life / 0.4);
-      ctx.font = 'bold 9px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#1a1420';
-      ctx.fillText(f.text, f.x + 1, f.y + 1);
-      ctx.fillStyle = f.color;
-      ctx.fillText(f.text, f.x, f.y);
-    }
-    ctx.globalAlpha = 1;
-
-    ctx.restore();
-    this.drawBanner(ctx);
+  /**
+   * Plain-object scene for render.js. The host draws this directly; phones
+   * build the same shape out of a decoded snapshot.
+   */
+  scene() {
+    return {
+      players: this.activePlayers().map((p) => this.playerView(p)),
+      enemies: this.enemies.map((e) => this.enemyView(e)),
+      shots: this.shots.map((s) => ({ kind: s.kind, x: s.x, y: s.y })),
+      pickups: this.pickups
+        // Blink out as they are about to expire.
+        .filter((k) => !(k.life < 5 && Math.floor(k.life * 8) % 2 === 0))
+        .map((k) => ({ kind: k.kind, x: k.x, y: k.y, bob: k.bob })),
+      particles: this.particles
+        .filter((p) => p.kind === 'puff')
+        .map((p) => ({ x: p.x, y: p.y, size: p.size, color: p.color, a: Math.max(0, p.life / p.t) })),
+      rings: this.particles
+        .filter((p) => p.kind === 'wave')
+        .map((p) => ({ x: p.x, y: p.y, r: p.r, a: Math.max(0, p.life / p.t) })),
+      floaters: this.floaters.map((f) => ({
+        x: f.x, y: f.y, text: f.text, color: f.color, a: Math.min(1, f.life / 0.4),
+      })),
+    };
   }
 
-  shadow(ctx, x, y, r) {
-    ctx.save();
-    ctx.globalAlpha = 0.28;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(x, y, r, r * 0.45, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  playerView(p) {
+    return {
+      id: p.id,
+      name: p.name,
+      slot: p.slot,
+      x: p.x,
+      y: p.y,
+      dir: p.dir,
+      frame: p.moving && !p.downed ? Math.floor(p.anim) % 8 : 0,
+      downed: p.downed,
+      invuln: p.invuln,
+      flash: p.flash,
+      atkT: p.atkT,
+      atkAngle: p.atkT > 0 ? this.swingAngle(p) : 0,
+      reviveProgress: p.downed ? p.reviveProgress / REVIVE_TIME : 0,
+      bleed: p.downed ? Math.max(0, p.bleed / BLEEDOUT) : 1,
+      connected: p.connected,
+    };
   }
 
-  drawPlayer(ctx, p) {
-    const sheet = heroSheet(p.slot);
-    const set = p.downed ? sheet.downed : sheet;
-    const key = p.dir === 'left' || p.dir === 'right' ? 'side' : p.dir;
-    const strip = set[key];
-    const frame = p.moving && !p.downed ? Math.floor(p.anim) % strip.length : 0;
-    const cv = strip[frame];
-    // The source side frames face left, so mirror them for right.
-    const flip = p.dir === 'right';
-    const ground = p.y + 7;
-
-    this.shadow(ctx, p.x, ground, 6);
-
-    if (p.downed) {
-      // Tipped on their side, feet where they fell.
-      ctx.save();
-      ctx.translate(p.x, ground);
-      ctx.rotate(Math.PI / 2);
-      drawAt(ctx, cv, 0, 0, sheet.foot, { alpha: 0.85 });
-      ctx.restore();
-      const pct = p.reviveProgress / REVIVE_TIME;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(p.x - 11, p.y - 15, 22, 4);
-      ctx.fillStyle = pct > 0 ? '#7dfc9a' : '#e2453c';
-      ctx.fillRect(p.x - 10, p.y - 14, 20 * (pct > 0 ? pct : p.bleed / BLEEDOUT), 2);
-      return;
-    }
-
-    // Blink while invulnerable.
-    const blink = p.invuln > 0 && Math.floor(p.invuln * 16) % 2 === 0;
-    if (!blink) {
-      drawAt(ctx, cv, p.x, ground, sheet.foot, {
-        flip,
-        tint: p.flash > 0 ? 'rgba(255,80,80,0.55)' : null,
-      });
-    }
-
-    if (p.atkT > 0) {
-      const a = this.swingAngle(p);
-      const hx = p.x + Math.cos(a) * 7;
-      const hy = p.y + Math.sin(a) * 7 + 1;
-      // The sword sprite points "up"; rotate it onto the swing angle.
-      drawSword(ctx, hx, hy, a + Math.PI / 2);
-    }
-
-    // Name tag in the player's colour.
-    ctx.font = 'bold 7px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(0,0,0,0.65)';
-    ctx.fillText(p.name, p.x + 1, p.y - 15);
-    ctx.fillStyle = p.color.t;
-    ctx.fillText(p.name, p.x, p.y - 16);
+  enemyView(e) {
+    return {
+      type: e.type,
+      x: e.x,
+      y: e.y,
+      face: e.face,
+      radius: e.radius,
+      frame: Math.floor(e.bob * 0.9),
+      bob: e.bob,
+      flash: e.flash,
+      alpha: e.spawnT > 0 ? 1 - e.spawnT / 0.45 : e.alpha,
+      scale: e.def.scale || 1,
+      boss: !!e.def.boss,
+      hp: e.hp,
+      maxHp: e.maxHp,
+      winding: e.mode === 'wind' || e.mode === 'slam',
+    };
   }
 
-  drawEnemy(ctx, e) {
-    const frames = enemyFrames(e.type);
-    // Two-frame shuffle driven by the same clock as the bob.
-    const cv = frames[Math.floor(e.bob * 0.9) % frames.length];
-    const scale = e.def.scale || 1;
-    const hover = e.type === 'bat' ? Math.sin(e.bob) * 2.5 - 3 : 0;
-    const ground = e.y + e.radius * 0.9;
-
-    this.shadow(ctx, e.x, ground, 6 * scale);
-
-    ctx.save();
-    if (e.spawnT > 0) ctx.globalAlpha = 1 - e.spawnT / 0.45;
-    else if (e.alpha !== 1) ctx.globalAlpha = e.alpha;
-    if (scale !== 1) {
-      ctx.translate(e.x, ground);
-      ctx.scale(scale, scale);
-      ctx.translate(-e.x, -ground);
-    }
-    // Telegraph the boss wind-up and the grunt's lunge prep with a red tint.
-    const winding = e.mode === 'wind' || e.mode === 'slam';
-    drawGrounded(ctx, cv, e.x, ground + hover, {
-      flip: e.face === 'l',
-      tint: e.flash > 0 ? 'rgba(255,255,255,0.75)' : winding ? 'rgba(255,60,60,0.45)' : null,
-    });
-    ctx.restore();
-
-    if (e.def.boss) {
-      const w = 60;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillRect(e.x - w / 2 - 1, e.y - 34, w + 2, 6);
-      ctx.fillStyle = '#e2453c';
-      ctx.fillRect(e.x - w / 2, e.y - 33, w * Math.max(0, e.hp / e.maxHp), 4);
-    }
-  }
-
-  drawBanner(ctx) {
-    if (!this.banner) return;
-    const b = this.banner;
-    const a = Math.min(1, b.t / 0.4);
-    ctx.save();
-    ctx.globalAlpha = a;
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(10,8,16,0.72)';
-    ctx.fillRect(0, H / 2 - 26, W, 44);
-    ctx.fillStyle = '#ffd24a';
-    ctx.font = 'bold 20px monospace';
-    ctx.fillText(b.text, W / 2, H / 2 - 4);
-    ctx.fillStyle = '#e8e4d8';
-    ctx.font = '9px monospace';
-    ctx.fillText(b.sub, W / 2, H / 2 + 11);
-    ctx.restore();
+  /**
+   * Compact state for the wire. Positions are rounded and identities are slot
+   * numbers, so a full snapshot of a busy field stays around a couple of KB.
+   * Cosmetic particles are not sent: the phone spawns its own from the `fx`
+   * event list, which also lets them animate at the phone's frame rate rather
+   * than stepping at the snapshot rate.
+   */
+  snapshot() {
+    const r = Math.round;
+    const snap = {
+      t: 'snap',
+      st: this.state,
+      wv: this.wave,
+      sc: this.score,
+      p: this.activePlayers().map((p) => [
+        p.slot, r(p.x), r(p.y), DIR_INDEX[p.dir],
+        p.moving && !p.downed ? Math.floor(p.anim) % 8 : 0,
+        (p.downed ? 1 : 0) | (p.atkT > 0 ? 2 : 0) | (p.connected === false ? 4 : 0),
+        r(p.invuln * 60), r(p.flash * 60),
+        p.atkT > 0 ? r(this.swingAngle(p) * 100) : 0,
+        r((p.downed ? (p.reviveProgress > 0 ? p.reviveProgress / REVIVE_TIME : p.bleed / BLEEDOUT) : 1) * 100),
+        p.downed && p.reviveProgress > 0 ? 1 : 0,
+      ]),
+      e: this.enemies.map((e) => [
+        e.id, ENEMY_INDEX[e.type], r(e.x), r(e.y), e.face === 'l' ? 1 : 0,
+        Math.floor(e.bob * 0.9) % 2, r(e.flash * 60),
+        r((e.spawnT > 0 ? 1 - e.spawnT / 0.45 : e.alpha) * 100),
+        e.radius, r((e.def.scale || 1) * 10),
+        e.def.boss ? r((e.hp / e.maxHp) * 100) : -1,
+        e.mode === 'wind' || e.mode === 'slam' ? 1 : 0,
+        r((e.bob % (Math.PI * 2)) * 20),
+      ]),
+      s: this.shots.map((s) => [s.kind === 'bolt' ? 1 : 0, r(s.x), r(s.y)]),
+      k: this.pickups.map((k) => [k.kind === 'heart' ? 0 : 1, r(k.x), r(k.y), r(k.bob * 10) % 63]),
+      fx: this.fx,
+      fl: this.fxFloaters,
+    };
+    this.fx = [];
+    this.fxFloaters = [];
+    return snap;
   }
 
   // ----------------------------------------------------------- HUD state
@@ -909,4 +837,4 @@ export class Game {
   }
 }
 
-export { PLAYER_MAX_HP, W, H, PILLARS };
+export { PLAYER_MAX_HP, WORLD_W, WORLD_H };
