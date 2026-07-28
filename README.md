@@ -65,6 +65,20 @@ Landscape is more comfortable, but portrait works.
   Knight boss every fifth wave. Waves spawn in a ring around the party
   wherever they happen to be, so spreading out does not buy you peace.
 
+### If a phone can't join
+
+The code on the host screen is reserved fresh **every time the host page
+loads**, so a reloaded host invalidates codes people are still holding. That
+case now says so by name: *"No room with code ABCD"*.
+
+A different message — *"Found room ABCD, but could not open a direct
+connection"* — means the code was right and the matchmaking server found the
+host, but the browsers could not open a peer-to-peer link. That is a network
+problem, not a wrong code. It happens on guest Wi-Fi with client isolation, or
+with one device on mobile data and the other on Wi-Fi. A public TURN relay is
+configured as a fallback, but the reliable fix is putting every device on the
+same Wi-Fi network.
+
 ### If someone drops
 
 Phones that go quiet for five seconds are marked offline; their hero stops
