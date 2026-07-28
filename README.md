@@ -51,8 +51,13 @@ work. See [below](#everyone-on-the-same-wi-fi) for why.
 Your phone shows your own view of the island. Drag anywhere on the left to
 move, **SLASH** to attack, **DASH** for a short burst with brief
 invulnerability. Arrows at the screen edge point to teammates who are off your
-camera. The host screen can also seat one keyboard player (WASD/arrows,
-`J`/Space to slash, `K`/Shift to dash) — handy for testing solo.
+camera.
+
+The host screen can seat a hero too — tick **Also play on this screen** in the
+lobby. It gets the same stick and buttons laid over the arena, so a trackpad or
+a touchscreen laptop is a perfectly good seat, and the keyboard works at the
+same time (WASD/arrows, `J`/Space to slash, `K`/Shift to dash). Whichever you
+reach for wins; there is nothing to choose up front.
 
 Landscape is more comfortable, but portrait works.
 
@@ -292,6 +297,7 @@ assets/world.*      terrain tiles and props + metadata
 js/sprites.js       atlas loading, mail recolouring, drawing helpers
 js/world.js         island generation, baking, collision, spawn points
 js/render.js        camera + the one copy of the scene drawing code
+js/controls.js      the one copy of the stick and buttons, for phone and host
 js/scene.js         client-side snapshot decoding and interpolation
 js/enemies.js       enemy archetypes (AI) and the wave curve
 js/weapons.js       weapon upgrades and what each one does to a swing

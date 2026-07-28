@@ -33,7 +33,8 @@
             <button id="start" class="primary" disabled>Start the onslaught</button>
             <label class="check">
               <input type="checkbox" id="localplay" />
-              Also play on this screen (WASD / arrows, J or Space to slash, K or Shift to dash)
+              Also play on this screen — on-screen stick and buttons, or WASD /
+              arrows with J or Space to slash and K or Shift to dash
             </label>
           </div>
           <p class="hint">
@@ -60,6 +61,19 @@
           <div id="scoreboard">
             <h3>Scoreboard</h3>
             <ol id="sb-rows"></ol>
+          </div>
+
+          <!-- Only shown once a hero is seated on this screen. -->
+          <div id="hostpad" class="hidden">
+            <div id="h-stick-zone">
+              <div id="h-stick"><div id="h-knob"></div></div>
+              <div id="h-stick-home"><div></div></div>
+              <div class="padhint">DRAG HERE TO MOVE · OR WASD</div>
+            </div>
+            <div id="h-buttons">
+              <div class="abtn" id="h-attack">SLASH</div>
+              <div class="abtn small" id="h-dash">DASH<div class="cool" id="h-cool"></div></div>
+            </div>
           </div>
         </div>
 

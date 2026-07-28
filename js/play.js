@@ -6,6 +6,7 @@ import { heroSheet, loadSprites, spritesReady } from './sprites.js';
 import { loadWorldArt, World } from './world.js';
 import { Camera, drawScene, drawOffscreenMarkers } from './render.js';
 import { SceneBuffer } from './scene.js';
+import { bindStick, bindButton } from './controls.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -338,115 +339,14 @@ async function keepAwake() {
   }
 }
 
-// --------------------------------------------------------------- the stick
+// ------------------------------------------------------- stick and buttons
 
-const STICK_RADIUS = 56;
-let stickId = null;
-let originX = 0;
-let originY = 0;
-
-function stickStart(x, y, id) {
-  stickId = id;
-  originX = x;
-  originY = y;
-  const r = ui.stickZone.getBoundingClientRect();
-  ui.stick.style.left = `${x - r.left}px`;
-  ui.stick.style.top = `${y - r.top}px`;
-  ui.stick.classList.add('on');
-  stickMove(x, y);
-}
-
-function stickMove(x, y) {
-  let dx = x - originX;
-  let dy = y - originY;
-  const d = Math.hypot(dx, dy);
-  if (d > STICK_RADIUS) {
-    dx = (dx / d) * STICK_RADIUS;
-    dy = (dy / d) * STICK_RADIUS;
-  }
-  ui.knob.style.transform = `translate(${dx}px, ${dy}px)`;
-  // Small deadzone so resting thumbs don't drift the hero.
-  const norm = Math.min(1, d / STICK_RADIUS);
-  if (norm < 0.16) {
-    input.ax = input.ay = 0;
-  } else {
-    const k = Math.hypot(dx, dy) || 1;
-    input.ax = (dx / k) * norm;
-    input.ay = (dy / k) * norm;
-  }
-}
-
-function stickEnd() {
-  stickId = null;
-  ui.stick.classList.remove('on');
-  ui.knob.style.transform = 'translate(0,0)';
-  input.ax = input.ay = 0;
-}
-
-ui.stickZone.addEventListener(
-  'touchstart',
-  (e) => {
-    e.preventDefault();
-    if (stickId !== null) return;
-    const t = e.changedTouches[0];
-    stickStart(t.clientX, t.clientY, t.identifier);
+const stick = bindStick(ui.stickZone, ui.stick, ui.knob, {
+  onChange: (ax, ay) => {
+    input.ax = ax;
+    input.ay = ay;
   },
-  { passive: false }
-);
-
-ui.stickZone.addEventListener(
-  'touchmove',
-  (e) => {
-    e.preventDefault();
-    for (const t of e.changedTouches) {
-      if (t.identifier === stickId) stickMove(t.clientX, t.clientY);
-    }
-  },
-  { passive: false }
-);
-
-const endTouch = (e) => {
-  for (const t of e.changedTouches) if (t.identifier === stickId) stickEnd();
-};
-ui.stickZone.addEventListener('touchend', endTouch);
-ui.stickZone.addEventListener('touchcancel', endTouch);
-
-// Mouse fallback so the controller is testable on a laptop.
-ui.stickZone.addEventListener('mousedown', (e) => {
-  stickStart(e.clientX, e.clientY, 'mouse');
-  const mm = (ev) => stickMove(ev.clientX, ev.clientY);
-  const mu = () => {
-    stickEnd();
-    window.removeEventListener('mousemove', mm);
-    window.removeEventListener('mouseup', mu);
-  };
-  window.addEventListener('mousemove', mm);
-  window.addEventListener('mouseup', mu);
 });
-
-// -------------------------------------------------------------- action keys
-
-function bindButton(el, onDown, onUp) {
-  const down = (e) => {
-    e.preventDefault();
-    el.classList.add('held');
-    onDown();
-  };
-  const up = (e) => {
-    e.preventDefault();
-    el.classList.remove('held');
-    onUp();
-  };
-  el.addEventListener('touchstart', down, { passive: false });
-  el.addEventListener('touchend', up, { passive: false });
-  el.addEventListener('touchcancel', up, { passive: false });
-  el.addEventListener('mousedown', down);
-  el.addEventListener('mouseup', up);
-  el.addEventListener('mouseleave', () => {
-    el.classList.remove('held');
-    onUp();
-  });
-}
 
 bindButton(
   ui.btnAttack,
@@ -546,7 +446,7 @@ function tick() {
   const now = performance.now();
   if (conn && conn.open && now - lastSent > 50) {
     lastSent = now;
-    if (stickId === null) pumpKeys();
+    if (!stick.active()) pumpKeys();
     send(conn, {
       t: 'input',
       ax: +input.ax.toFixed(2),

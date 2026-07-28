@@ -2,10 +2,11 @@
 
 import { startHost, send, MAX_PLAYERS } from './net.js';
 import { hasTurn } from './turn.js';
-import { Game } from './game.js';
+import { Game, DASH_COOLDOWN } from './game.js';
 import { heroSheet, loadSprites, PLAYER_COLORS } from './sprites.js';
 import { loadWorldArt } from './world.js';
 import { Camera, drawScene } from './render.js';
+import { bindStick, bindButton } from './controls.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,6 +37,13 @@ const ui = {
   again: $('again'),
   status: $('status'),
   mmCanvas: $('minimap'),
+  hostpad: $('hostpad'),
+  hStickZone: $('h-stick-zone'),
+  hStick: $('h-stick'),
+  hKnob: $('h-knob'),
+  hAttack: $('h-attack'),
+  hDash: $('h-dash'),
+  hCool: $('h-cool'),
 };
 
 const ctx = ui.canvas.getContext('2d');
@@ -317,6 +325,7 @@ ui.start.addEventListener('click', () => {
   ui.stage.classList.remove('hidden');
   ui.gameover.classList.add('hidden');
   buildTopbar();
+  syncHostPad();
   fitCanvas();
   broadcast({ t: 'started' });
 });
@@ -325,6 +334,7 @@ ui.again.addEventListener('click', () => {
   ui.gameover.classList.add('hidden');
   game.start();
   buildTopbar();
+  syncHostPad();
   broadcast({ t: 'started' });
 });
 
@@ -353,18 +363,72 @@ ui.localplay.addEventListener('change', () => {
   } else {
     game.removePlayer(LOCAL_ID);
   }
+  syncHostPad();
   renderSlots();
 });
+
+// ------------------------------------------------ controls on this screen
+
+// The same stick and buttons the phones get. Keyboard still works; whichever
+// the host reaches for wins, so nobody has to pick one up front.
+const pad = { ax: 0, ay: 0, attack: false, dash: false, dashLatch: false };
+
+const hostStick = bindStick(ui.hStickZone, ui.hStick, ui.hKnob, {
+  radius: 48,
+  onChange: (ax, ay) => {
+    pad.ax = ax;
+    pad.ay = ay;
+  },
+});
+
+bindButton(
+  ui.hAttack,
+  () => {
+    pad.attack = true;
+  },
+  () => {
+    pad.attack = false;
+  }
+);
+
+bindButton(
+  ui.hDash,
+  () => {
+    pad.dash = true;
+    pad.dashLatch = true;
+  },
+  () => {
+    pad.dash = false;
+  }
+);
+
+function syncHostPad() {
+  const seated = game.players.has(LOCAL_ID);
+  ui.hostpad.classList.toggle('hidden', !seated);
+  if (seated) {
+    // Tint the knob with the local hero's colour, so the stick reads as
+    // belonging to a particular hero on a screen showing six of them.
+    document.documentElement.style.setProperty('--knob', game.players.get(LOCAL_ID).color.t);
+  } else {
+    pad.ax = pad.ay = 0;
+    pad.attack = pad.dash = false;
+  }
+}
 
 function pumpLocalInput() {
   if (!game.players.has(LOCAL_ID)) return;
   const k = (...names) => names.some((n) => keys.has(n));
+  const kx = (k('d', 'arrowright') ? 1 : 0) - (k('a', 'arrowleft') ? 1 : 0);
+  const ky = (k('s', 'arrowdown') ? 1 : 0) - (k('w', 'arrowup') ? 1 : 0);
+  const steering = hostStick.active();
   game.setInput(LOCAL_ID, {
-    ax: (k('d', 'arrowright') ? 1 : 0) - (k('a', 'arrowleft') ? 1 : 0),
-    ay: (k('s', 'arrowdown') ? 1 : 0) - (k('w', 'arrowup') ? 1 : 0),
-    attack: k('j', ' ', 'spacebar'),
-    dash: k('k', 'shift'),
+    ax: steering ? pad.ax : kx,
+    ay: steering ? pad.ay : ky,
+    attack: pad.attack || k('j', ' ', 'spacebar'),
+    // A click shorter than one frame would otherwise be dropped entirely.
+    dash: pad.dash || pad.dashLatch || k('k', 'shift'),
   });
+  pad.dashLatch = false;
 }
 
 // ---------------------------------------------------------------- game HUD
@@ -583,6 +647,8 @@ function loop(now) {
     ui.sScore.textContent = hud.score;
     ui.sInter.textContent = hud.intermission ? `Next wave in ${hud.intermission}` : '';
     syncTopbar(hud);
+    const local = game.players.get(LOCAL_ID);
+    if (local) ui.hCool.style.height = `${Math.max(0, local.dashCool / DASH_COOLDOWN) * 100}%`;
   }
 
   // World snapshots drive every phone's own camera and rendering.

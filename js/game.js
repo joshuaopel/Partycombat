@@ -1109,4 +1109,4 @@ export class Game {
   }
 }
 
-export { PLAYER_MAX_HP, WORLD_W, WORLD_H };
+export { PLAYER_MAX_HP, DASH_COOLDOWN, WORLD_W, WORLD_H };
