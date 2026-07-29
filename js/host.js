@@ -536,13 +536,22 @@ function showGameOver(ev) {
 
 // -------------------------------------------------------------- main loop
 
-// The TV is a director's view following the middle of the party. The zoom is
-// fixed at 1:1 and never moves — a view that rubber-bands out every time two
-// people walk apart is disorienting to watch and worse to play on, and the
-// minimap plus the edge arrows already say where everyone is.
+// Two jobs, depending on whether anyone is playing on this screen.
+//
+// Nobody seated here: a director's view following the middle of the party.
+// Someone seated here: their view, following their hero, exactly like a phone.
+// Splitting the difference — centring the party while you are one of them —
+// means your own hero slides off-centre every time a teammate wanders off,
+// which is unplayable.
+//
+// Either way the zoom is fixed at 1:1 and never moves. A view that rubber-bands
+// out when two people walk apart is disorienting to watch and worse to play on;
+// the minimap and the edge arrows already say where everyone is.
 const HOST_W = 640;
 const HOST_H = 384;
 const cam = new Camera(HOST_W, HOST_H, 1);
+// Exposed alongside window.__game for poking at from the console.
+window.__cam = cam;
 let minimap = null;
 
 function buildMinimap() {
@@ -552,6 +561,13 @@ function buildMinimap() {
 }
 
 function updateDirectorCamera(dt) {
+  const local = game.players.get(LOCAL_ID);
+  if (local) {
+    // Same follow rate the phones use, so playing here feels the same as
+    // playing on one.
+    cam.followSmooth(local.x, local.y, game.world, dt, 12);
+    return;
+  }
   const live = game.activePlayers();
   if (!live.length) return;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -630,10 +646,12 @@ function loop(now) {
   updateDirectorCamera(dt);
   ctx.clearRect(0, 0, HOST_W, HOST_H);
   const view = game.scene();
-  drawScene(ctx, game.world, cam, view, { names: true, shake: game.shakeAmt });
+  // When someone is playing here, mark their hero the way a phone marks yours.
+  const self = game.players.has(LOCAL_ID) ? LOCAL_ID : null;
+  drawScene(ctx, game.world, cam, view, { names: true, highlight: self, shake: game.shakeAmt });
   // With the zoom locked, a party that spreads out walks off the edge of this
   // view. The arrows are how the TV still shows where they went.
-  drawOffscreenMarkers(ctx, cam, view.players, null);
+  drawOffscreenMarkers(ctx, cam, view.players, self);
   drawBanner(ctx);
   drawMinimap();
 

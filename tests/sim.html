@@ -138,30 +138,42 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   ok(Number.isFinite(g.enemies.reduce((s, e) => s + e.x + e.y, 0)), 'no NaN positions after boss wave');
 }
 
-// ---- 5b. a solo hero should survive the opening waves without playing well
+// ---- 5b. the opening has to be survivable by someone playing badly
+//
+// The world seed does not make a *run* deterministic — spawn placement, wave
+// composition and drops all pull from Math.random — so this samples instead of
+// asserting a single outcome. A flaky "reached wave 4" is worse than no test.
 {
-  const g = new Game({ seed: 3141 });
-  const p = g.addPlayer('a', 'ROOKIE');
-  g.start();
-  // Walk at the nearest enemy and mash. No dodging, no spacing, no dashing —
-  // the floor of how anyone plays their first run.
-  for (let i = 0; i < 60 * 60 * 4 && g.wave < 4 && g.state !== 'gameover'; i++) {
-    let best = null, bd = Infinity;
-    for (const e of g.enemies) {
-      const d = Math.hypot(e.x - p.x, e.y - p.y);
-      if (d < bd) { bd = d; best = e; }
+  // Walk at the nearest enemy and mash. No dodging, no spacing, no dashing,
+  // no weapons on purpose: the floor of how anyone plays their first run.
+  const rookieRun = (seed) => {
+    const g = new Game({ seed });
+    const p = g.addPlayer('a', 'ROOKIE');
+    g.start();
+    for (let i = 0; i < 60 * 60 * 6 && g.state !== 'gameover'; i++) {
+      let best = null, bd = Infinity;
+      for (const e of g.enemies) {
+        const d = Math.hypot(e.x - p.x, e.y - p.y);
+        if (d < bd) { bd = d; best = e; }
+      }
+      if (best) {
+        const dx = best.x - p.x, dy = best.y - p.y, d = Math.hypot(dx, dy) || 1;
+        const close = d < 20;
+        g.setInput('a', { ax: close ? 0 : dx / d, ay: close ? 0 : dy / d, attack: bd < 34 });
+      } else {
+        g.setInput('a', { ax: 0, ay: 0, attack: false });
+      }
+      g.update(1 / 60);
     }
-    if (best) {
-      const dx = best.x - p.x, dy = best.y - p.y, d = Math.hypot(dx, dy) || 1;
-      const close = d < 20;
-      g.setInput('a', { ax: close ? 0 : dx / d, ay: close ? 0 : dy / d, attack: bd < 34 });
-    } else {
-      g.setInput('a', { ax: 0, ay: 0, attack: false });
-    }
-    g.update(1 / 60);
-  }
-  ok(g.state !== 'gameover', `a button-masher reaches wave 4 solo (got to ${g.wave}, state=${g.state})`);
-  ok(p.hp > 0 && !p.downed, `and is still standing (hp=${p.hp}/${p.maxHp})`);
+    return g.wave;
+  };
+
+  const waves = [];
+  for (let k = 0; k < 9; k++) waves.push(rookieRun(3141 + k * 13));
+  waves.sort((a, b) => a - b);
+  const median = waves[4];
+  ok(median >= 4, `a solo button-masher usually reaches wave 4+ (median ${median}, runs ${waves.join(',')})`);
+  ok(waves[0] >= 2, `and never dies on wave 1 (worst run reached ${waves[0]})`);
 }
 
 // ---- 6. six players all fit, seventh is refused

@@ -20,11 +20,16 @@ disagree.
 The world is bigger than any one screen, so **every phone is its own screen**
 with its own camera following its own hero. Phones send input and receive
 world snapshots at 15 Hz; they render at their own frame rate, interpolating
-between the two most recent snapshots. The TV runs a director's camera that
-follows the middle of the party at a fixed 1:1 — it never zooms. A view that
-rubber-bands out every time two people walk apart is disorienting to watch and
-worse to play on; the minimap and the coloured arrows at the screen edge are
-how the TV shows where a spread-out party went.
+between the two most recent snapshots.
+
+The TV has two modes. With nobody playing on it, it runs a director's camera
+following the middle of the party. With a hero seated on it, it becomes that
+hero's view and follows them, exactly like a phone — splitting the difference
+would slide your own hero off-centre every time a teammate wandered off. Either
+way the zoom is fixed at 1:1 and never moves: a view that rubber-bands out when
+two people walk apart is disorienting to watch and worse to play on, and the
+minimap plus the coloured arrows at the screen edge already say where everyone
+is.
 
 ```
                   ┌──────────────────────────┐
@@ -61,7 +66,9 @@ The host screen can seat a hero too — tick **Also play on this screen** in the
 lobby. It gets the same stick and buttons laid over the arena, so a trackpad or
 a touchscreen laptop is a perfectly good seat, and the keyboard works at the
 same time (WASD/arrows, `J`/Space to slash, `K`/Shift to dash). Whichever you
-reach for wins; there is nothing to choose up front.
+reach for wins; there is nothing to choose up front. The big screen stops being
+a director's view and becomes yours, following your hero and marking it with the
+same caret a phone uses.
 
 Landscape is more comfortable, but portrait works.
 
@@ -332,8 +339,12 @@ simulation (combat resolves, waves advance and escalate, downing, revival and
 bleedout, six-player seating, world collision, shoreline sliding, prop spacing
 and solidity, seed determinism, pickups and every weapon's behaviour, kill
 credit, scoreboard ordering and tie-breaking, and snapshot encode/decode
-round-tripping) and prints pass/fail. Every case runs on a fixed seed so the
-suite is deterministic.
+round-tripping) and prints pass/fail.
+
+The seed fixes the *world*, not a whole run — spawn placement, wave composition
+and drops all pull from `Math.random`, so anything that plays the game out is
+sampled over several runs and asserted on the median rather than on a single
+outcome. A flaky assertion is worse than no assertion.
 
 `tests/sprites.html` renders every frame of every mail colour and enemy.
 `tests/world.html` generates an island and shows it both whole and at 1:1;
