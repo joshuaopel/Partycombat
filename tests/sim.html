@@ -92,15 +92,34 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   ok(!a.downed && !a.out && a.hp > 0, `wave clear brings them back (downed=${a.downed} hp=${a.hp})`);
 }
 
-// ---- 4. wave curve: boss every 5th, roster widens
+// ---- 4. wave curve: gentle opening, boss every 5th from wave 10, roster widens
 {
-  ok(waveSpec(5).isBoss && !waveSpec(4).isBoss, 'wave 5 is a boss wave, wave 4 is not');
-  ok(waveSpec(5).list.some(l => l.type === 'knight'), 'boss wave includes the knight');
+  const size = (s) => s.list.reduce((a, l) => a + l.count, 0);
+
+  // The opening has to be small enough to learn on. A first wave that arrives
+  // as a swarm is the whole reason this curve was rewritten.
+  ok(size(waveSpec(1, 1)) <= 4, `wave 1 solo is a handful (${size(waveSpec(1, 1))} enemies)`);
+  ok(waveSpec(1, 1).list.every((l) => l.type === 'octo'), 'and only the simplest enemy');
+  ok(waveSpec(1, 1).spawnInterval > 0.9, 'they arrive about a second apart');
+
+  // No boss until wave 10 — an Armos Knight at 5 ended solo runs every time.
+  for (let w = 1; w <= 9; w++) ok(!waveSpec(w).isBoss || w > 9, `wave ${w} has no boss`);
+  ok(waveSpec(10).isBoss && waveSpec(15).isBoss, 'bosses land on 10 and 15');
+  ok(!waveSpec(11).isBoss, 'and not on the waves between');
+  ok(waveSpec(10).list.some((l) => l.type === 'knight'), 'a boss wave includes the knight');
+
+  // The wave has to know how many people are actually swinging at it.
+  ok(size(waveSpec(4, 6)) > size(waveSpec(4, 1)), 'a bigger party gets a bigger wave');
+  ok(waveSpec(4, 6).concurrent > waveSpec(4, 1).concurrent, 'and more of them at once');
+  ok(waveSpec(4, 9).concurrent === waveSpec(4, 6).concurrent, 'party size is capped at six');
+  ok(waveSpec(10, 6).bossMul > waveSpec(10, 1).bossMul, 'and a boss with more health');
+
   const late = waveSpec(12);
   ok(late.hpMul > waveSpec(1).hpMul, 'later waves have an hp multiplier');
+  ok(size(waveSpec(12, 1)) > size(waveSpec(2, 1)), 'and more enemies than the opening');
   const types = new Set();
-  for (let w = 1; w <= 12; w++) for (const l of waveSpec(w).list) types.add(l.type);
-  ok(types.size >= 5, `roster widens over 12 waves (${[...types].join(',')})`);
+  for (let w = 1; w <= 14; w++) for (const l of waveSpec(w).list) types.add(l.type);
+  ok(types.size >= 5, `roster widens over 14 waves (${[...types].join(',')})`);
 }
 
 // ---- 5. a boss wave actually runs without exploding
@@ -109,14 +128,40 @@ const step = (g, secs, dt = 1 / 60) => { for (let i = 0; i < secs / dt; i++) g.u
   const p = g.addPlayer('a', 'X');
   g.start();
   step(g, 3);
-  g.beginWave(5);
+  g.beginWave(10);
   for (let i = 0; i < 60 * 20; i++) {
     p.hp = p.maxHp; p.downed = false;
     g.setInput('a', { ax: Math.sin(i / 40), ay: Math.cos(i / 33), attack: true });
     g.update(1 / 60);
   }
-  ok(g.enemies.some(e => e.def.boss) || g.wave > 5, 'boss present and simulating');
+  ok(g.enemies.some(e => e.def.boss) || g.wave > 10, 'boss present and simulating');
   ok(Number.isFinite(g.enemies.reduce((s, e) => s + e.x + e.y, 0)), 'no NaN positions after boss wave');
+}
+
+// ---- 5b. a solo hero should survive the opening waves without playing well
+{
+  const g = new Game({ seed: 3141 });
+  const p = g.addPlayer('a', 'ROOKIE');
+  g.start();
+  // Walk at the nearest enemy and mash. No dodging, no spacing, no dashing —
+  // the floor of how anyone plays their first run.
+  for (let i = 0; i < 60 * 60 * 4 && g.wave < 4 && g.state !== 'gameover'; i++) {
+    let best = null, bd = Infinity;
+    for (const e of g.enemies) {
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      const dx = best.x - p.x, dy = best.y - p.y, d = Math.hypot(dx, dy) || 1;
+      const close = d < 20;
+      g.setInput('a', { ax: close ? 0 : dx / d, ay: close ? 0 : dy / d, attack: bd < 34 });
+    } else {
+      g.setInput('a', { ax: 0, ay: 0, attack: false });
+    }
+    g.update(1 / 60);
+  }
+  ok(g.state !== 'gameover', `a button-masher reaches wave 4 solo (got to ${g.wave}, state=${g.state})`);
+  ok(p.hp > 0 && !p.downed, `and is still standing (hp=${p.hp}/${p.maxHp})`);
 }
 
 // ---- 6. six players all fit, seventh is refused

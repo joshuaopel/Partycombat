@@ -22,19 +22,22 @@ const PICKUP_INDEX = Object.fromEntries(PICKUP_NAMES.map((n, i) => [n, i]));
 import { ENEMY_TYPES, waveSpec } from './enemies.js';
 import { WEAPON_TYPES, WEAPON_NAMES, randomWeapon, meleeStats } from './weapons.js';
 
-const PLAYER_SPEED = 82;
-const PLAYER_MAX_HP = 6; // two hit points per heart
-const ATTACK_COOLDOWN = 0.42;
+const PLAYER_SPEED = 90;
+const PLAYER_MAX_HP = 8; // two hit points per heart, so four hearts
+const ATTACK_COOLDOWN = 0.36;
 const ATTACK_ACTIVE = 0.26;
-const ATTACK_RANGE = 25;
-const ATTACK_ARC = 1.05; // radians either side of facing
+const ATTACK_RANGE = 28;
+const ATTACK_ARC = 1.15; // radians either side of facing
 const DASH_SPEED = 260;
 const DASH_TIME = 0.2;
-const DASH_COOLDOWN = 2.4;
-const INVULN_TIME = 1.0;
-const BLEEDOUT = 22;
-const REVIVE_TIME = 2.4;
-const REVIVE_RANGE = 24;
+const DASH_COOLDOWN = 2.0;
+const INVULN_TIME = 1.2;
+const BLEEDOUT = 30;
+const REVIVE_TIME = 2.0;
+const REVIVE_RANGE = 26;
+// Back on your feet at half health rather than a single heart — coming back
+// one contact hit from going down again is barely a revive.
+const REVIVE_HP = PLAYER_MAX_HP / 2;
 const INTERMISSION = 5;
 // Loose pickups keep appearing while a wave is running, so there is always a
 // reason to leave your corner of the island.
@@ -173,6 +176,11 @@ export class Game {
     return this.activePlayers().filter((p) => !p.downed && p.connected !== false);
   }
 
+  /** Heroes still connected, downed or not — what the wave curve is sized to. */
+  partySize() {
+    return Math.max(1, this.activePlayers().filter((p) => p.connected !== false).length);
+  }
+
   // --------------------------------------------------------------- waves
 
   start() {
@@ -188,7 +196,9 @@ export class Game {
 
   beginWave(n) {
     this.wave = n;
-    this.spec = waveSpec(n);
+    // Sized to who is actually holding a controller. A hero who dropped out
+    // does not get to make the wave bigger for everyone still standing.
+    this.spec = waveSpec(n, this.partySize());
     this.spawnQueue = [];
     for (const { type, count } of this.spec.list) {
       for (let i = 0; i < count; i++) this.spawnQueue.push(type);
@@ -214,7 +224,10 @@ export class Game {
     if (!def) return;
     // Waves close in on the party rather than trickling from a map edge.
     const spot = at || this.world.spawnNear(Math.random, this.livePlayers());
-    const hp = Math.round(def.hp * (this.spec ? this.spec.hpMul : 1));
+    const spec = this.spec;
+    const hp = Math.round(
+      def.hp * (spec ? spec.hpMul : 1) * (def.boss && spec ? spec.bossMul : 1)
+    );
     const e = {
       id: ++this.entId, // stable across snapshots so phones can interpolate
       type,
@@ -395,7 +408,7 @@ export class Game {
       if (!p.downed) continue;
       p.downed = false;
       p.out = false;
-      p.hp = 2;
+      p.hp = REVIVE_HP;
       p.invuln = 2;
       p.reviveProgress = 0;
       this.floater(p.x, p.y - 14, 'BACK UP', '#7dfc9a');
@@ -434,7 +447,7 @@ export class Game {
         if (p.reviveProgress >= REVIVE_TIME) {
           p.downed = false;
           p.out = false;
-          p.hp = 2;
+          p.hp = REVIVE_HP;
           p.invuln = 1.6;
           p.reviveProgress = 0;
           this.floater(p.x, p.y - 14, 'REVIVED', '#7dfc9a');

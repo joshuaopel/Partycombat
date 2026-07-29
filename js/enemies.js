@@ -6,7 +6,7 @@
 export const ENEMY_TYPES = {
   octo: {
     label: 'Octo',
-    hp: 3,
+    hp: 2,
     speed: 26,
     radius: 7,
     score: 10,
@@ -24,12 +24,12 @@ export const ENEMY_TYPES = {
           if (t) {
             const d = Math.hypot(t.x - e.x, t.y - e.y);
             e.face = Math.abs(t.x - e.x) > Math.abs(t.y - e.y) ? (t.x > e.x ? 'r' : 'l') : t.y > e.y ? 'd' : 'u';
-            if (d < 190) e.willFire = true;
+            if (d < 150) e.willFire = true;
           }
         } else {
           if (e.willFire) {
             const t = ctx.nearestPlayer(e);
-            if (t) ctx.enemyShot(e, t.x, t.y, 'rock', 78, 1);
+            if (t) ctx.enemyShot(e, t.x, t.y, 'rock', 68, 1);
             e.willFire = false;
           }
           e.mode = 'move';
@@ -48,8 +48,8 @@ export const ENEMY_TYPES = {
 
   grunt: {
     label: 'Grunt',
-    hp: 5,
-    speed: 40,
+    hp: 3,
+    speed: 38,
     radius: 8,
     score: 15,
     contact: 1,
@@ -93,8 +93,8 @@ export const ENEMY_TYPES = {
 
   bat: {
     label: 'Keese',
-    hp: 2,
-    speed: 62,
+    hp: 1,
+    speed: 56,
     radius: 6,
     score: 12,
     contact: 1,
@@ -116,8 +116,8 @@ export const ENEMY_TYPES = {
 
   bones: {
     label: 'Stalfos',
-    hp: 10,
-    speed: 30,
+    hp: 6,
+    speed: 28,
     radius: 8,
     score: 25,
     contact: 2,
@@ -142,7 +142,7 @@ export const ENEMY_TYPES = {
 
   mage: {
     label: 'Taros',
-    hp: 6,
+    hp: 4,
     speed: 0,
     radius: 8,
     score: 35,
@@ -169,7 +169,7 @@ export const ENEMY_TYPES = {
         if (t) {
           const base = Math.atan2(t.y - e.y, t.x - e.x);
           for (const off of [-0.34, 0, 0.34]) {
-            ctx.enemyShotAngle(e, base + off, 'bolt', 88, 1);
+            ctx.enemyShotAngle(e, base + off, 'bolt', 76, 1);
           }
         }
         e.mode = 'gone';
@@ -180,11 +180,13 @@ export const ENEMY_TYPES = {
 
   knight: {
     label: 'Armos Knight',
-    hp: 90,
-    speed: 34,
+    hp: 28,
+    speed: 30,
     radius: 16,
     score: 400,
-    contact: 2,
+    // Bumping into it hurts, but the charge and the slam are the real
+    // threats. At 2 it simply ground down anyone who could not outrun it.
+    contact: 1,
     knockback: 0,
     boss: true,
     scale: 1.7,
@@ -208,8 +210,9 @@ export const ENEMY_TYPES = {
           const d = Math.hypot(t.x - e.x, t.y - e.y) || 1;
           e.mode = 'charge';
           e.timer = 0.9;
-          e.vx = ((t.x - e.x) / d) * 4.2;
-          e.vy = ((t.y - e.y) / d) * 4.2;
+          // Fast, but no longer faster than a hero can run away from.
+          e.vx = ((t.x - e.x) / d) * 3.0;
+          e.vy = ((t.y - e.y) / d) * 3.0;
           ctx.shake(4);
         }
         return;
@@ -217,7 +220,7 @@ export const ENEMY_TYPES = {
       if (e.mode === 'slam') {
         e.vx = e.vy = 0;
         if (e.timer <= 0) {
-          ctx.shockwave(e.x, e.y, 78, 2);
+          ctx.shockwave(e.x, e.y, 62, 2);
           ctx.shake(9);
           const adds = 2 + Math.floor(ctx.wave / 10);
           for (let i = 0; i < adds; i++) ctx.spawnAdd('bat');
@@ -251,18 +254,33 @@ export const ENEMY_TYPES = {
 /**
  * Difficulty curve. Every fifth wave is a boss wave; the roster widens and
  * enemies gain bonus hit points as the run goes on.
+ *
+ * Two things shape it. It starts genuinely small — wave 1 solo is three
+ * Octoroks arriving a second apart, not a swarm — and it scales with how many
+ * heroes are actually playing. Six heroes facing the same wave as one hero
+ * made solo play brutal and a full room trivial, and no single curve can serve
+ * both.
  */
-export function waveSpec(wave) {
-  const isBoss = wave % 5 === 0;
-  const budget = 4 + Math.floor(wave * 1.7);
+export function waveSpec(wave, party = 1) {
+  // Bosses every fifth wave, but not until wave 10. An Armos Knight at wave 5
+  // was the wall everyone hit: it arrived while people were still learning the
+  // sword, and for a solo hero it ended the run every single time.
+  const isBoss = wave >= 10 && wave % 5 === 0;
+  const heads = Math.max(1, Math.min(6, party));
+  const solo = 2 + Math.round(wave * 1.0);
+  // A boss wave is mostly the boss: the escort is halved so the first Armos
+  // Knight is a fight rather than a fight plus a pile-on.
+  const budget = Math.max(1, Math.round(solo * (0.55 + 0.45 * heads) * (isBoss ? 0.5 : 1)));
   const pool = [];
   const add = (type, weight) => pool.push({ type, weight });
 
+  // Archetypes arrive one at a time with room to learn each one, rather than
+  // three of them landing in the first two minutes.
   add('octo', 10);
-  if (wave >= 2) add('grunt', 8 + wave);
-  if (wave >= 3) add('bat', 6 + wave);
-  if (wave >= 6) add('bones', 4 + wave * 0.6);
-  if (wave >= 8) add('mage', 3 + wave * 0.4);
+  if (wave >= 3) add('grunt', 6 + wave);
+  if (wave >= 5) add('bat', 5 + wave);
+  if (wave >= 8) add('bones', 4 + wave * 0.6);
+  if (wave >= 11) add('mage', 3 + wave * 0.4);
 
   const total = pool.reduce((s, p) => s + p.weight, 0);
   const counts = {};
@@ -286,11 +304,15 @@ export function waveSpec(wave) {
     list,
     // Enemies get tougher and marginally faster; speed is capped so late
     // waves stay about crowd control rather than raw reaction time.
-    hpMul: 1 + (wave - 1) * 0.16,
-    speedMul: Math.min(1.55, 1 + (wave - 1) * 0.035),
-    // Trickle spawns in so a wave arrives as pressure, not a wall.
-    spawnInterval: Math.max(0.22, 0.85 - wave * 0.035),
-    concurrent: Math.min(22, 6 + Math.floor(wave * 1.1)),
+    hpMul: 1 + (wave - 1) * 0.1,
+    // A boss is one health bar shared by the whole party, so unlike the rank
+    // and file it has to scale with how many swords are pointed at it.
+    bossMul: 0.55 + 0.45 * heads,
+    speedMul: Math.min(1.35, 1 + (wave - 1) * 0.025),
+    // Trickle spawns in so a wave arrives as pressure, not a wall. Early
+    // waves trickle slowly enough to fight one thing at a time.
+    spawnInterval: Math.max(0.32, 1.15 - wave * 0.045),
+    concurrent: Math.min(20, 2 + Math.floor(wave * 0.7) + heads),
   };
 }
 

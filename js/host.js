@@ -5,7 +5,7 @@ import { hasTurn } from './turn.js';
 import { Game, DASH_COOLDOWN } from './game.js';
 import { heroSheet, loadSprites, PLAYER_COLORS } from './sprites.js';
 import { loadWorldArt } from './world.js';
-import { Camera, drawScene } from './render.js';
+import { Camera, drawScene, drawOffscreenMarkers } from './render.js';
 import { bindStick, bindButton } from './controls.js';
 
 const $ = (id) => document.getElementById(id);
@@ -536,8 +536,10 @@ function showGameOver(ev) {
 
 // -------------------------------------------------------------- main loop
 
-// The TV is a director's view: it frames the whole party, zooming out as they
-// spread across the island, so spectators always see everyone.
+// The TV is a director's view following the middle of the party. The zoom is
+// fixed at 1:1 and never moves — a view that rubber-bands out every time two
+// people walk apart is disorienting to watch and worse to play on, and the
+// minimap plus the edge arrows already say where everyone is.
 const HOST_W = 640;
 const HOST_H = 384;
 const cam = new Camera(HOST_W, HOST_H, 1);
@@ -557,13 +559,6 @@ function updateDirectorCamera(dt) {
     x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
     y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
   }
-  const pad = 150;
-  const wantZoom = Math.max(
-    0.45,
-    Math.min(1.6, Math.min(HOST_W / (x1 - x0 + pad), HOST_H / (y1 - y0 + pad)))
-  );
-  // Ease the zoom so a sprinting player doesn't snap the whole view.
-  cam.zoom += (wantZoom - cam.zoom) * (1 - Math.exp(-3 * dt));
   cam.followSmooth((x0 + x1) / 2, (y0 + y1) / 2, game.world, dt, 4);
 }
 
@@ -634,7 +629,11 @@ function loop(now) {
 
   updateDirectorCamera(dt);
   ctx.clearRect(0, 0, HOST_W, HOST_H);
-  drawScene(ctx, game.world, cam, game.scene(), { names: true, shake: game.shakeAmt });
+  const view = game.scene();
+  drawScene(ctx, game.world, cam, view, { names: true, shake: game.shakeAmt });
+  // With the zoom locked, a party that spreads out walks off the edge of this
+  // view. The arrows are how the TV still shows where they went.
+  drawOffscreenMarkers(ctx, cam, view.players, null);
   drawBanner(ctx);
   drawMinimap();
 

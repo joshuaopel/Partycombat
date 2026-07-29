@@ -3,7 +3,8 @@
 A Jackbox-style co-op wave defence game for up to six players. Put the host
 screen on a TV, laptop or monitor; everyone else joins from their phone by
 typing a four-letter room code (or scanning the QR). Heroes hold a walled
-arena against escalating waves of enemies, with a boss every fifth wave.
+arena against escalating waves of enemies, with a boss every fifth wave from
+wave 10.
 
 Personal, non-commercial project. Static site — it runs entirely on
 GitHub Pages with no backend.
@@ -20,7 +21,10 @@ The world is bigger than any one screen, so **every phone is its own screen**
 with its own camera following its own hero. Phones send input and receive
 world snapshots at 15 Hz; they render at their own frame rate, interpolating
 between the two most recent snapshots. The TV runs a director's camera that
-frames the whole party, zooming out as they spread out, plus a minimap.
+follows the middle of the party at a fixed 1:1 — it never zooms. A view that
+rubber-bands out every time two people walk apart is disorienting to watch and
+worse to play on; the minimap and the coloured arrows at the screen edge are
+how the TV shows where a spread-out party went.
 
 ```
                   ┌──────────────────────────┐
@@ -63,9 +67,10 @@ Landscape is more comfortable, but portrait works.
 
 ### Rules
 
-- Three hearts each. Take enough damage and you go **down** rather than die.
-- A downed hero bleeds out over 22 seconds. Any teammate standing over them
-  revives them — two teammates revive twice as fast.
+- Four hearts each. Take enough damage and you go **down** rather than die.
+- A downed hero bleeds out over 30 seconds. Any teammate standing over them
+  revives them — two teammates revive twice as fast, and you come back on half
+  health rather than a single heart.
 - The run ends when every connected hero is down at once.
 - Clearing a wave drops hearts and pays a bonus. Consecutive kills build a
   score multiplier that resets when you take a hit.
@@ -76,10 +81,16 @@ Landscape is more comfortable, but portrait works.
 - **Loot keeps landing** while a wave runs, out where you have to go and get
   it: hearts to heal two hit points, rupees for points, and weapon upgrades.
   Bosses always drop a heart and a weapon; every wave clear leaves both too.
-- Enemies escalate: Octoroks (ranged) → Moblins (lunging melee) → Keese (fast,
-  erratic) → Stalfos (tanky) → Taros (teleporting casters), with an Armos
-  Knight boss every fifth wave. Waves spawn in a ring around the party
-  wherever they happen to be, so spreading out does not buy you peace.
+- Enemies arrive one archetype at a time, with room to learn each: Octoroks
+  (ranged) from wave 1, Moblins (lunging melee) from 3, Keese (fast, erratic)
+  from 5, Stalfos (tanky) from 8, Taros (teleporting casters) from 11. An
+  Armos Knight boss lands every fifth wave **from wave 10** — early enough to
+  be a milestone, late enough that you have met everything else first. Waves
+  spawn in a ring around the party wherever they happen to be, so spreading
+  out does not buy you peace.
+- **The curve scales with the party.** Six heroes get a bigger wave and a
+  tougher boss than one hero does; no single curve serves both, and pretending
+  otherwise made solo play brutal and a full room trivial.
 
 ### Weapons
 
@@ -311,11 +322,12 @@ tools/build_world.py  slices terrain tiles and props
 tests/sim.html      headless assertions over the simulation
 tests/sprites.html  renders every frame for eyeballing art
 tests/world.html    generates an island and shows it whole and at 1:1
+tests/balance.html  bot-plays the difficulty curve and reports how far it gets
 ```
 
 ## Tests
 
-Open `tests/sim.html` in a browser — it runs 86 assertions against the
+Open `tests/sim.html` in a browser — it runs 106 assertions against the
 simulation (combat resolves, waves advance and escalate, downing, revival and
 bleedout, six-player seating, world collision, shoreline sliding, prop spacing
 and solidity, seed determinism, pickups and every weapon's behaviour, kill
@@ -326,3 +338,9 @@ suite is deterministic.
 `tests/sprites.html` renders every frame of every mail colour and enemy.
 `tests/world.html` generates an island and shows it both whole and at 1:1;
 pass `?seed=N` to try a different one.
+
+`tests/balance.html` answers "is this too hard?" with a number. It plays the
+game with a deliberately bad bot — walk at the nearest enemy, swing, never
+dodge, never retreat — and reports the wave it reaches at each party size,
+plus exactly what each wave sends. That is the *floor*; a real person does
+better. Open it after changing any difficulty number.

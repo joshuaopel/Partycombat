@@ -1,0 +1,88 @@
+<!doctype html><html><head><meta charset="utf-8"><title>balance</title>
+<style>body{background:#14101f;color:#e8e4d8;font:13px/1.6 monospace;padding:1.5rem}
+h1{font-size:1rem;color:#ffd24a;margin-bottom:.4rem}p{color:#9b93b5;max-width:60em;margin-bottom:1rem}</style>
+</head><body>
+<h1>Balance harness</h1>
+<p>Plays the game with a deliberately bad bot — walk at the nearest enemy, swing,
+never dodge, never retreat, never use a weapon on purpose — and reports how far
+it gets at each party size. This is the <em>floor</em>: a real person does
+better. It exists so "the difficulty feels off" can be answered with a number
+instead of an argument. Runs take a few seconds.</p>
+<pre id="log">running…</pre>
+<script type="module">
+import { Game } from '../js/game.js';
+import { waveSpec } from '../js/enemies.js';
+
+const SEEDS = 15;
+const out = [];
+
+function run(party, seed) {
+  const g = new Game({ seed });
+  const bots = [];
+  for (let i = 0; i < party; i++) bots.push(g.addPlayer('p' + i, 'BOT' + i));
+  g.start();
+  const dt = 1 / 60;
+  // Twelve simulated minutes is well past where this bot ever survives.
+  for (let f = 0; f < 60 * 60 * 12 && g.state !== 'gameover'; f++) {
+    for (const p of bots) {
+      if (p.downed) continue;
+      // A downed teammate outranks the fight; otherwise hit the nearest thing.
+      let goal = null;
+      let gd = Infinity;
+      for (const o of bots) {
+        if (!o.downed || o.out) continue;
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d < gd) { gd = d; goal = o; }
+      }
+      const reviving = !!goal;
+      let near = Infinity;
+      if (!goal) {
+        for (const e of g.enemies) {
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d < near) { near = d; goal = e; }
+        }
+      }
+      if (!goal) { g.setInput(p.id, { ax: 0, ay: 0, attack: false }); continue; }
+      const dx = goal.x - p.x;
+      const dy = goal.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const close = d < (reviving ? 14 : 20);
+      g.setInput(p.id, {
+        ax: close ? 0 : dx / d,
+        ay: close ? 0 : dy / d,
+        attack: !reviving && near < 34,
+      });
+    }
+    g.update(dt);
+  }
+  return g.wave;
+}
+
+for (const party of [1, 2, 3, 4, 6]) {
+  const waves = [];
+  for (let k = 0; k < SEEDS; k++) waves.push(run(party, 11 + k * 7));
+  waves.sort((a, b) => a - b);
+  out.push(
+    `party of ${party}:  worst ${String(waves[0]).padStart(2)}   ` +
+    `median ${String(waves[Math.floor(waves.length / 2)]).padStart(2)}   ` +
+    `best ${String(waves[waves.length - 1]).padStart(2)}`
+  );
+}
+
+out.push('', 'what each wave actually sends:');
+for (const party of [1, 6]) {
+  for (const w of [1, 2, 3, 5, 10]) {
+    const s = waveSpec(w, party);
+    const n = s.list.reduce((a, l) => a + l.count, 0);
+    out.push(
+      `  party ${party} wave ${String(w).padStart(2)}: ${String(n).padStart(2)} enemies ` +
+      `(${s.list.map((l) => l.type + '×' + l.count).join(', ')}) — ` +
+      `${s.concurrent} at once, one every ${s.spawnInterval.toFixed(2)}s, hp ×${s.hpMul.toFixed(2)}`
+    );
+  }
+}
+
+document.getElementById('log').textContent = out.join('\n');
+window.__results = out;
+window.__done = true;
+</script></body></html>
