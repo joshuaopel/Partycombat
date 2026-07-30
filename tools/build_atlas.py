@@ -95,12 +95,37 @@ for name, (path, box, bgs, keep) in ENEMY_SPECS.items():
     enemies[name] = [cutout(im, r, bgs) for r in picked]
     print(f'{name:7s} {len(picked)} frames  {[ (r[2],r[3]) for r in picked ]}')
 
-# Armos Knight: the component merges with its shatter debris, so take a fixed
-# crop of just the statue.
+# Armos Knight. Its statue touches its own shatter debris, so the flood fill
+# returns the two as one component and the frame has to be split by hand.
+#
+# It used to be split with a hardcoded 26px width, which was six columns short
+# and sliced the round shield clean in half — the boss shipped with a flat
+# vertical edge down its right side. So find the seam instead: the statue is
+# solid (25-32 filled pixels per column) and the debris beside it is sparse
+# (under 14), and the gap between those two is unmistakable.
 armos_im = Image.open(os.path.join(SRC, 'sheets/armos.png')).convert('RGB')
 ARMOS_BGS = MAGENTA + ((248, 128, 248),)
-enemies['knight'] = [cutout(armos_im, (8, 24, 26, 32), ARMOS_BGS)]
-print(f'knight  1 frames  [(26, 32)]')
+
+def armos_statue(im, bgs, search=(0, 20, 70, 60)):
+    a = np.array(im.convert('RGB'))
+    solid = ~bgmask(a, bgs)
+    x0, y0, x1, y1 = search
+    band = solid[y0:y1, x0:x1]
+    rows = np.where(band.any(axis=1))[0]
+    top, bot = y0 + rows.min(), y0 + rows.max() + 1
+    dens = solid[top:bot, x0:x1].sum(axis=0)
+    lit = np.where(dens > 0)[0]
+    left = lit.min()
+    # Walk right from the statue's left edge until the column count collapses.
+    thick = dens[left:].max()
+    end = left
+    while end < len(dens) and dens[end] > thick * 0.45:
+        end += 1
+    return (x0 + left, top, end - left, bot - top)
+
+rect = armos_statue(armos_im, ARMOS_BGS)
+enemies['knight'] = [cutout(armos_im, rect, ARMOS_BGS)]
+print(f'knight  1 frames  [({rect[2]}, {rect[3]})]  at {rect[0]},{rect[1]}')
 
 # Trim every enemy frame to its own tight bounds so the atlas stays small.
 def trim(img):

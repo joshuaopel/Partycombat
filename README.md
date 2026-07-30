@@ -330,6 +330,7 @@ tests/sim.html      headless assertions over the simulation
 tests/sprites.html  renders every frame for eyeballing art
 tests/world.html    generates an island and shows it whole and at 1:1
 tests/balance.html  bot-plays the difficulty curve and reports how far it gets
+tests/poster.html   composes the teaser image out of the real renderer
 ```
 
 ## Tests
@@ -349,6 +350,11 @@ outcome. A flaky assertion is worse than no assertion.
 `tests/sprites.html` renders every frame of every mail colour and enemy.
 `tests/world.html` generates an island and shows it both whole and at 1:1;
 pass `?seed=N` to try a different one.
+
+`tests/poster.html` composes a teaser image — a hand-placed fight rendered
+through the real `drawScene`, with the title treatment laid over it in CSS.
+Screenshot the `#poster` element at 1920x1080. Building it is also how three
+rendering bugs got found, so it is worth re-rendering after art changes.
 
 `tests/balance.html` answers "is this too hard?" with a number. It plays the
 game with a deliberately bad bot — walk at the nearest enemy, swing, never

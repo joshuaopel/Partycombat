@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>poster</title>
+<style>
+  html,body{margin:0;background:#07060c;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  #poster{position:relative;width:1920px;height:1080px;overflow:hidden;background:#07060c}
+  #c{position:absolute;inset:0;image-rendering:pixelated}
+
+  /* Type needs somewhere dark to sit, and the corners want pulling down so the
+     eye lands on the fight. Kept tight: every pixel spent on gradient is a
+     pixel of arena nobody sees. */
+  .grade{position:absolute;inset:0;pointer-events:none}
+  .grade.top{background:linear-gradient(180deg,rgba(7,6,12,.95) 0%,rgba(7,6,12,.8) 9%,rgba(7,6,12,0) 27%)}
+  .grade.bot{background:linear-gradient(0deg,rgba(7,6,12,.96) 0%,rgba(7,6,12,.7) 8%,rgba(7,6,12,0) 22%)}
+  .grade.vig{background:radial-gradient(ellipse 68% 62% at 48% 52%,rgba(0,0,0,0) 42%,rgba(5,4,10,.7) 100%)}
+  .grade.warm{background:radial-gradient(ellipse 30% 28% at 79% 52%,rgba(255,150,40,.22) 0%,rgba(255,150,40,0) 70%);
+              mix-blend-mode:screen}
+
+  .wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:space-between;
+        padding:44px 70px 44px}
+
+  .eyebrow{display:flex;align-items:center;gap:16px;font-size:17px;letter-spacing:.4em;
+           color:#9b93b5;text-transform:uppercase}
+  .eyebrow .rule{height:2px;flex:1;max-width:120px;
+                 background:linear-gradient(90deg,#ffd24a,rgba(255,210,74,0))}
+
+  h1{margin:.1em 0 0;font-size:116px;line-height:.86;letter-spacing:.04em;color:#ffd24a;
+     text-transform:uppercase;font-weight:800;
+     text-shadow:0 6px 0 #8a5209,0 11px 0 #43260a,0 17px 38px rgba(0,0,0,.85)}
+
+  .tag{margin-top:16px;font-size:29px;letter-spacing:.12em;color:#f2eee4;font-weight:700;
+       text-transform:uppercase;text-shadow:0 3px 0 #000,0 6px 20px rgba(0,0,0,.92)}
+  .tag b{color:#ffd24a}
+
+  .foot{display:flex;align-items:flex-end;justify-content:space-between;gap:56px}
+
+  .feats{display:flex;flex-direction:column;gap:9px}
+  .feat{display:flex;align-items:center;gap:13px;font-size:20px;letter-spacing:.09em;color:#e8e4d8;
+        text-transform:uppercase;text-shadow:0 2px 7px rgba(0,0,0,.98)}
+  .feat i{width:8px;height:8px;border-radius:2px;background:#ffd24a;flex:none;
+          box-shadow:0 0 11px rgba(255,210,74,.85)}
+  .feat span{color:#9b93b5}
+
+  /* The hook is a Jackbox-style code, so show one. */
+  .code{flex:none;text-align:center;border:3px solid #352d55;border-radius:14px;
+        background:rgba(14,11,24,.85);padding:15px 30px 18px;
+        box-shadow:0 12px 40px rgba(0,0,0,.75)}
+  .code .lbl{font-size:14px;letter-spacing:.32em;color:#9b93b5;text-transform:uppercase}
+  .code .val{margin-top:6px;font-size:62px;line-height:1;letter-spacing:.2em;color:#ffd24a;
+             font-weight:800;padding-left:.2em;text-shadow:0 4px 0 #7a4f08}
+  .code .sub{margin-top:9px;font-size:14px;letter-spacing:.11em;color:#e8e4d8;text-transform:uppercase}
+
+  .fine{position:absolute;left:0;right:0;bottom:13px;text-align:center;font-size:13px;
+        letter-spacing:.1em;color:#6d6688}
+</style>
+</head>
+<body>
+<div id="poster">
+  <canvas id="c" width="1920" height="1080"></canvas>
+  <div class="grade warm"></div>
+  <div class="grade vig"></div>
+  <div class="grade top"></div>
+  <div class="grade bot"></div>
+
+  <div class="wrap">
+    <header>
+      <div class="eyebrow"><span class="rule"></span>Six-player co-op · in a web page</div>
+      <h1>Partycombat</h1>
+      <div class="tag">Six phones. One screen. <b>Endless waves.</b></div>
+    </header>
+
+    <div class="foot">
+      <div class="feats">
+        <div class="feat"><i></i>Your phone is the controller <span>— and its own screen</span></div>
+        <div class="feat"><i></i>No app, no accounts, no server <span>— just a web page</span></div>
+        <div class="feat"><i></i>Weapons drop mid-fight <span>— bow, boomerang, fire rod</span></div>
+      </div>
+      <div class="code">
+        <div class="lbl">Room code</div>
+        <div class="val">KWVT</div>
+        <div class="sub">Everyone on one Wi-Fi</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="fine">
+    A personal, non-commercial fan project · sprites from <i>The Legend of Zelda: A Link to the Past</i>, which belong to Nintendo
+  </div>
+</div>
+
+<script type="module">
+import { loadSprites } from '../js/sprites.js';
+import { loadWorldArt, World } from '../js/world.js';
+import { Camera, drawScene } from '../js/render.js';
+
+await Promise.all([loadSprites(), loadWorldArt()]);
+
+// Camera picked by sweeping the island for a frame whose middle is clear of
+// large props but whose edges are not — the fight has to be legible and the
+// frame still has to have depth. Heroes are kept off tree canopies too, or the
+// in-game canopy fade turns half the backdrop into flat dark blobs.
+const SEED = 2024;
+const CX = 1230, CY = 810;
+const ZOOM = 4;                       // 480x270 logical -> 1920x1080
+const world = new World(SEED);
+world.bake();
+const cam = new Camera(1920, 1080, ZOOM);
+cam.centreOn(CX, CY, world);
+
+// Everything below is placed in *screen* coordinates on the 480x270 logical
+// frame, because composition is the whole job here: the title owns the top
+// ~70px and the copy owns the bottom ~35px, so the fight lives in between.
+const OX = cam.x, OY = cam.y;
+const sx = (v) => OX + v;
+const sy = (v) => OY + v;
+
+// Deterministic jitter, so the poster renders identically every time.
+let seedN = 1337;
+const rnd = () => ((seedN = (seedN * 1664525 + 1013904223) >>> 0) / 4294967296);
+
+const hero = (slot, name, x, y, dir, o = {}) => ({
+  id: 'h' + slot, name, slot, x: sx(x), y: sy(y), dir,
+  frame: o.frame ?? 0, downed: false, invuln: 0, flash: o.flash ?? 0,
+  atkT: o.atkT ?? 0, atkAngle: o.atkAngle ?? 0,
+  reviveProgress: 0, bleed: 1, connected: true, weapon: o.weapon ?? null,
+});
+
+const foe = (type, x, y, o = {}) => ({
+  type, x: sx(x), y: sy(y), face: o.face ?? 'l', radius: o.radius ?? 8,
+  frame: o.frame ?? 0, bob: o.bob ?? rnd() * 6, flash: o.flash ?? 0,
+  alpha: 1, scale: o.scale ?? 1, boss: !!o.boss,
+  hp: o.hp ?? 1, maxHp: o.maxHp ?? 1, winding: !!o.winding,
+});
+
+// Six heroes on a diagonal, all of them facing the thing on the right.
+const players = [
+  hero(0, 'ALEX',  92, 198, 'right', { atkT: 0.15, atkAngle: -0.2, weapon: 'master', frame: 2 }),
+  hero(1, 'SAM',  150, 178, 'right', { atkT: 0.2,  atkAngle: 0.32, weapon: 'bow',    frame: 5 }),
+  hero(2, 'JO',   102, 150, 'right', { frame: 3, weapon: 'rod' }),
+  hero(3, 'KIT',  198, 208, 'right', { atkT: 0.11, atkAngle: -0.5, weapon: 'rang',   frame: 6 }),
+  hero(4, 'RAE',  204, 152, 'right', { atkT: 0.23, atkAngle: -0.9, flash: 0.22 }),
+  hero(5, 'MO',   152, 122, 'right', { atkT: 0.13, atkAngle: 0.1,  frame: 1 }),
+];
+
+// The boss keeps its own colours: the wind-up tint is right in motion but in a
+// still frame it just smothers the sprite everyone is here to look at.
+const enemies = [
+  foe('knight', 386, 154, { boss: true, scale: 1.7, radius: 16, hp: 58, maxHp: 110, face: 'r' }),
+  foe('grunt', 252, 184 ),
+  foe('grunt', 294, 138, { flash: 0.12 }),
+  foe('grunt', 322, 214, { face: 'r' }),
+  foe('grunt', 348, 196 ),
+  foe('octo',  238, 116, { radius: 7 }),
+  foe('octo',   78, 170, { radius: 7 }),
+  foe('octo',  296, 104, { radius: 7, face: 'r' }),
+  foe('octo',  352, 208, { radius: 7 }),
+  foe('bat',   190, 104, { radius: 6, frame: 1 }),
+  foe('bat',   266,  96, { radius: 6 }),
+  foe('bat',   336, 172, { radius: 6, frame: 1, face: 'r' }),
+  foe('bat',   306, 160, { radius: 6 }),
+  foe('bones', 332, 108 ),
+  foe('bones',  82, 128 ),
+  foe('mage',  420, 116 ),
+];
+
+// Arrows, beams, a boomerang and a fireball outbound; rocks and bolts inbound.
+const shot = (kind, x, y, ang = 0) => ({ kind, x: sx(x), y: sy(y), ang });
+const shots = [
+  shot('arrow', 182, 175, 0.02), shot('arrow', 212, 174, 0.02),
+  shot('beam',  132, 194), shot('beam', 158, 195),
+  shot('rang',  232, 154, 2.2),
+  shot('fire',  266, 190, -0.3),
+  shot('rock',  216, 140), shot('rock', 170, 162),
+  shot('bolt',  404, 116), shot('bolt', 388, 126),
+];
+
+const pickups = [
+  { kind: 'heart', x: sx(82),  y: sy(112), bob: 1.1 },
+  { kind: 'rupee', x: sx(312), y: sy(226), bob: 2.4 },
+  { kind: 'bow',   x: sx(428), y: sy(178), bob: 0.6 },
+];
+
+const rings = [
+  { x: sx(386), y: sy(154), r: 50, a: 0.5 },  // the boss winding up its slam
+  { x: sx(240), y: sy(180), r: 21, a: 0.8 },  // a fireball going off
+];
+
+// Impact bursts: hand-placed centres, procedural spray.
+const particles = [];
+const burst = (x, y, n, color, spread) => {
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = rnd() * spread;
+    particles.push({
+      x: sx(x) + Math.cos(a) * d, y: sy(y) + Math.sin(a) * d,
+      size: 1 + rnd() * 2.4, color, a: 0.45 + rnd() * 0.55,
+    });
+  }
+};
+burst(294, 138, 13, '#ffffff', 10);
+burst(240, 180, 24, '#ff7a2a', 20);
+burst(244, 184, 10, '#ffd24a', 13);
+burst(386, 150, 24, '#ffd24a', 32);
+burst(204, 152, 10, '#e2453c',  9);
+burst(92,  198,  8, '#40d870',  9);
+burst(198, 208,  7, '#7dfc9a',  8);
+burst(74,  168,  9, '#ffffff',  8);
+
+const floaters = [
+  { x: sx(74),  y: sy(150), text: '+15',  color: '#40d870', a: 1 },
+  { x: sx(294), y: sy(120), text: '+22',  color: '#ffc060', a: 1 },
+  { x: sx(440), y: sy(148), text: '+120', color: '#ffd24a', a: 1 },
+];
+
+const ctx = document.getElementById('c').getContext('2d');
+ctx.imageSmoothingEnabled = false;
+drawScene(ctx, world, cam, { players, enemies, shots, pickups, particles, rings, floaters },
+          { names: true, highlight: null });
+
+window.__done = true;
+</script>
+</body>
+</html>

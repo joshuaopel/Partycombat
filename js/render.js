@@ -162,11 +162,14 @@ function drawEnemy(ctx, e) {
   ctx.restore();
 
   if (e.boss) {
+    // Above the sprite's actual top, which depends on its scale — a fixed
+    // offset put the bar across the Armos Knight's face.
+    const top = ground - cv.height * scale - 9;
     const w = 60;
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(e.x - w / 2 - 1, e.y - 34, w + 2, 6);
+    ctx.fillRect(e.x - w / 2 - 1, top, w + 2, 6);
     ctx.fillStyle = '#e2453c';
-    ctx.fillRect(e.x - w / 2, e.y - 33, w * Math.max(0, e.hp / e.maxHp), 4);
+    ctx.fillRect(e.x - w / 2, top + 1, w * Math.max(0, e.hp / e.maxHp), 4);
   }
 }
 

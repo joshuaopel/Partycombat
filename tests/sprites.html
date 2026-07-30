@@ -13,7 +13,7 @@
     <div id="out">loading…</div>
     <script type="module">
       import {
-        loadSprites, heroSheet, enemyFrames, prop, swordSprite, PLAYER_COLORS,
+        loadSprites, heroSheet, enemyFrames, prop, swordSprite, drawAt, PLAYER_COLORS,
       } from '../js/sprites.js';
 
       const S = 5;
@@ -49,8 +49,59 @@
         row(`enemy: ${t}`, enemyFrames(t));
       }
       row('props + sword', [...['heart', 'rupee', 'rock', 'bolt', 'spark'].map(prop), swordSprite()]);
+      row('pickups + projectiles',
+          ['master', 'bow', 'rod', 'rang', 'arrow', 'beam', 'fire'].map(prop));
 
+      // ---- assertions: a hit flash must tint the sprite, not its bounding box
+      //
+      // Compositing the tint straight onto the scene made every flashing enemy
+      // a solid rectangle, because `source-atop` respects whatever is already
+      // under the fill — and the ground is opaque everywhere. Draw onto a known
+      // ground colour and check the corners survived.
+      const results = [];
+      const ok = (c, m) => results.push((c ? 'PASS ' : 'FAIL ') + m);
+      {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 40;
+        const c = cv.getContext('2d');
+        c.imageSmoothingEnabled = false;
+        c.fillStyle = '#3fa34d'; // stand-in for grass
+        c.fillRect(0, 0, 40, 40);
+        const frame = enemyFrames('octo')[0];
+        drawAt(c, frame, 20, 30, frame.height, { tint: 'rgba(255,255,255,0.75)' });
+
+        const px = (x, y) => [...c.getImageData(x, y, 1, 1).data];
+        const isGrass = (p) => Math.abs(p[0] - 0x3f) < 12 && Math.abs(p[1] - 0xa3) < 12 && Math.abs(p[2] - 0x4d) < 12;
+        const left = 20 - Math.floor(frame.width / 2);
+        const top = 30 - frame.height;
+        // The sprite's own corners are transparent, so the ground must show.
+        const corners = [[left, top], [left + frame.width - 1, top]];
+        ok(corners.every(([x, y]) => isGrass(px(x, y))),
+           `a tinted sprite leaves its corners alone (${corners.map(([x, y]) => px(x, y).slice(0, 3).join(',')).join(' | ')})`);
+        // And something inside it actually got lighter.
+        const plain = document.createElement('canvas');
+        plain.width = plain.height = 40;
+        const pc = plain.getContext('2d');
+        pc.fillStyle = '#3fa34d';
+        pc.fillRect(0, 0, 40, 40);
+        drawAt(pc, frame, 20, 30, frame.height, {});
+        let brighter = 0;
+        for (let y = top; y < top + frame.height; y++) {
+          for (let x = left; x < left + frame.width; x++) {
+            const a = px(x, y);
+            const b = [...pc.getImageData(x, y, 1, 1).data];
+            if (a[0] > b[0] + 12 && a[1] > b[1] + 4) brighter++;
+          }
+        }
+        ok(brighter > 8, `and does brighten the sprite itself (${brighter} pixels)`);
+      }
+      const pre = document.createElement('pre');
+      pre.textContent = results.join('\n');
+      pre.style.color = results.some((r) => r.startsWith('FAIL')) ? '#e2453c' : '#7dfc9a';
+      out.prepend(pre);
+      window.__results = results;
       window.__ready = true;
+      window.__done = true;
     </script>
   </body>
 </html>

@@ -244,17 +244,40 @@ export function drawSprite(ctx, cv, x, y, { flip = false, alpha = 1, tint = null
  */
 export function drawAt(ctx, cv, x, y, anchor, { flip = false, alpha = 1, tint = null } = {}) {
   const hw = cv.width / 2;
+  const src = tint ? tinted(cv, tint) : cv;
   ctx.save();
   if (alpha !== 1) ctx.globalAlpha = alpha;
   ctx.translate(Math.round(x), Math.round(y));
   if (flip) ctx.scale(-1, 1);
-  ctx.drawImage(cv, -hw, -anchor);
-  if (tint) {
-    ctx.globalCompositeOperation = 'source-atop';
-    ctx.fillStyle = tint;
-    ctx.fillRect(-hw, -anchor, cv.width, cv.height);
-  }
+  // The scratch canvas can be bigger than the sprite, so blit just its corner.
+  ctx.drawImage(src, 0, 0, cv.width, cv.height, -hw, -anchor, cv.width, cv.height);
   ctx.restore();
+}
+
+/**
+ * A tinted copy of a sprite, for hit flashes and boss wind-ups.
+ *
+ * This has to happen on a canvas holding nothing but the sprite. Compositing
+ * `source-atop` straight onto the scene tints every opaque pixel already under
+ * the fill rect — which is the whole ground — so a flashing enemy came out as a
+ * solid rectangle of colour rather than a white silhouette.
+ */
+let scratch = null;
+function tinted(cv, tint) {
+  if (!scratch || scratch.width < cv.width || scratch.height < cv.height) {
+    scratch = canvasOf(Math.max(cv.width, scratch ? scratch.width : 0),
+                       Math.max(cv.height, scratch ? scratch.height : 0));
+  }
+  const c = scratch.getContext('2d');
+  c.imageSmoothingEnabled = false;
+  c.globalCompositeOperation = 'source-over';
+  c.clearRect(0, 0, scratch.width, scratch.height);
+  c.drawImage(cv, 0, 0);
+  c.globalCompositeOperation = 'source-atop';
+  c.fillStyle = tint;
+  c.fillRect(0, 0, cv.width, cv.height);
+  c.globalCompositeOperation = 'source-over';
+  return scratch;
 }
 
 /** Draw a character standing on the ground line at (x, groundY). */
